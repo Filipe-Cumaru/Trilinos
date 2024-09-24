@@ -2,7 +2,6 @@
 #define _FROSCH_ALGEBRAICMSFEMINTERFACEPARTITIONOFUNITY_DECL_HPP
 
 #include <FROSch_GDSWInterfacePartitionOfUnity_def.hpp>
-#include <FROSch_SolverFactory_def.hpp>
 
 namespace FROSch
 {
