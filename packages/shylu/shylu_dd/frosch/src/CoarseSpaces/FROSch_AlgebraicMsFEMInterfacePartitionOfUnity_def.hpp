@@ -26,6 +26,13 @@ namespace FROSch
                                                                                                                                                                  levelID),
                                                                                                                    K_(K)
     {
+        this->UseVertices_ = false;
+        this->UseShortEdges_ = false;
+        this->UseStraightEdges_ = false;
+        this->UseEdges_ = true;
+        this->UseFaces_ = true;
+        this->LocalPartitionOfUnity_ = ConstXMultiVectorPtrVecPtr(1);
+        this->PartitionOfUnityMaps_ = ConstXMapPtrVecPtr(1);
     }
 
     template <class SC, class LO, class GO, class NO>
