@@ -258,18 +258,30 @@ namespace FROSch {
                          RCP<Matrix<SC,LO,GO,NO> > &kII,
                          RCP<Matrix<SC,LO,GO,NO> > &kIJ,
                          RCP<Matrix<SC,LO,GO,NO> > &kJI,
-                         RCP<Matrix<SC,LO,GO,NO> > &kJJ)
+                         RCP<Matrix<SC,LO,GO,NO> > &kJJ,
+                         bool setkII = true,
+                         bool setkIJ = true,
+                         bool setkJI = true,
+                         bool setkJJ = true,
+                         ArrayView<GO> indViewJ = ArrayView<GO>(null))
     {
         FROSCH_DETAILTIMER_START(buildSubmatricesTime,"BuildSubmatrices");
         // We need four Maps
         const GO INVALID = Teuchos::OrdinalTraits<GO>::invalid();
+        // Getting stuck here.
         RCP<Map<LO,GO,NO> > mapI = MapFactory<LO,GO,NO>::Build(k->getRowMap()->lib(),INVALID,indI(),0,k->getRowMap()->getComm());
         RCP<Map<LO,GO,NO> > mapILocal = MapFactory<LO,GO,NO>::Build(k->getRowMap()->lib(),INVALID,indI.size(),0,k->getRowMap()->getComm());
 
         Array<GO> indJ;
-        for (unsigned i=0; i<k->getLocalNumRows(); i++) {
-            if (mapI->getLocalElement(i)<0) {
-                indJ.push_back(i);
+        if (indViewJ.is_null()) {
+            for (unsigned i = 0; i < k->getLocalNumRows(); i++) {
+                if (mapI->getLocalElement(i) < 0) {
+                    indJ.push_back(i);
+                }
+            }
+        } else {
+            for (unsigned i = 0; i < indViewJ.size(); i++) {
+                indJ.push_back(indViewJ[i]);
             }
         }
 
@@ -438,32 +450,51 @@ namespace FROSch {
             params->set("sorted", false);
 
             // create kII
-            graph_type crsgraphII (IndicesII, RowptrII);
-            crsmat_type LocalII = crsmat_type ("CrsMatrix", numRowsI, ValuesII, crsgraphII);
-            kII = MatrixFactory<SC,LO,GO,NO>::Build(LocalII, mapILocal, mapILocal, mapILocal, mapILocal,
-                                                    params);
+            if (setkII) {
+                graph_type crsgraphII (IndicesII, RowptrII);
+                crsmat_type LocalII = crsmat_type ("CrsMatrix", numRowsI, ValuesII, crsgraphII);
+                kII = MatrixFactory<SC,LO,GO,NO>::Build(LocalII, mapILocal, mapILocal, mapILocal, mapILocal,
+                                                        params);
+            }
+
             // create kIJ
-            graph_type crsgraphIJ (IndicesIJ, RowptrIJ);
-            crsmat_type LocalIJ = crsmat_type ("CrsMatrix", numRowsI, ValuesIJ, crsgraphIJ);
-            kIJ = MatrixFactory<SC,LO,GO,NO>::Build(LocalIJ, mapILocal, mapJLocal, mapJLocal, mapILocal,
-                                                    params);
+            if (setkIJ) {
+                graph_type crsgraphIJ (IndicesIJ, RowptrIJ);
+                crsmat_type LocalIJ = crsmat_type ("CrsMatrix", numRowsI, ValuesIJ, crsgraphIJ);
+                kIJ = MatrixFactory<SC,LO,GO,NO>::Build(LocalIJ, mapILocal, mapJLocal, mapJLocal, mapILocal,
+                                                        params);
+            }
+
             // create kJI
-            graph_type crsgraphJI (IndicesJI, RowptrJI);
-            crsmat_type LocalJI = crsmat_type ("CrsMatrix", numRowsJ, ValuesJI, crsgraphJI);
-            kJI = MatrixFactory<SC,LO,GO,NO>::Build(LocalJI, mapJLocal, mapILocal, mapILocal, mapJLocal,
-                                                    params);
+            if (setkJI) {
+                graph_type crsgraphJI (IndicesJI, RowptrJI);
+                crsmat_type LocalJI = crsmat_type ("CrsMatrix", numRowsJ, ValuesJI, crsgraphJI);
+                kJI = MatrixFactory<SC,LO,GO,NO>::Build(LocalJI, mapJLocal, mapILocal, mapILocal, mapJLocal,
+                                                        params);
+            }
+
             // create kJJ
-            graph_type crsgraphJJ (IndicesJJ, RowptrJJ);
-            crsmat_type LocalJJ = crsmat_type ("CrsMatrix", numRowsJ, ValuesJJ, crsgraphJJ);
-            kJJ = MatrixFactory<SC,LO,GO,NO>::Build(LocalJJ, mapJLocal, mapJLocal, mapJLocal, mapJLocal,
-                                                    params);
+            if (setkJJ) {
+                graph_type crsgraphJJ (IndicesJJ, RowptrJJ);
+                crsmat_type LocalJJ = crsmat_type ("CrsMatrix", numRowsJ, ValuesJJ, crsgraphJJ);
+                kJJ = MatrixFactory<SC,LO,GO,NO>::Build(LocalJJ, mapJLocal, mapJLocal, mapJLocal, mapJLocal,
+                                                        params);
+            }
         } else
 #endif
         {
-            kII = MatrixFactory<SC,LO,GO,NO>::Build(mapILocal,min((LO) k->getGlobalMaxNumRowEntries(),(LO) indI.size()));
-            kIJ = MatrixFactory<SC,LO,GO,NO>::Build(mapILocal,min((LO) k->getGlobalMaxNumRowEntries(),(LO) indJ.size()));
-            kJI = MatrixFactory<SC,LO,GO,NO>::Build(mapJLocal,min((LO) k->getGlobalMaxNumRowEntries(),(LO) indI.size()));
-            kJJ = MatrixFactory<SC,LO,GO,NO>::Build(mapJLocal,min((LO) k->getGlobalMaxNumRowEntries(),(LO) indJ.size()));
+            if (setkII) {
+                kII = MatrixFactory<SC,LO,GO,NO>::Build(mapILocal,min((LO) k->getGlobalMaxNumRowEntries(),(LO) indI.size()));
+            }
+            if (setkIJ) {
+                kIJ = MatrixFactory<SC,LO,GO,NO>::Build(mapILocal,min((LO) k->getGlobalMaxNumRowEntries(),(LO) indJ.size()));
+            }
+            if (setkJI) {
+                kJI = MatrixFactory<SC,LO,GO,NO>::Build(mapJLocal,min((LO) k->getGlobalMaxNumRowEntries(),(LO) indI.size()));
+            }
+            if (setkJJ) {
+                kJJ = MatrixFactory<SC,LO,GO,NO>::Build(mapJLocal,min((LO) k->getGlobalMaxNumRowEntries(),(LO) indJ.size()));
+            }
 
             for (unsigned i=0; i<k->getLocalNumRows(); i++) {
                 ArrayView<const LO> indices;
@@ -488,8 +519,14 @@ namespace FROSch {
                             valuesJ.push_back(values[j]);
                         }
                     }
-                    kII->insertGlobalValues(tmp1,indicesI(),valuesI());
-                    kIJ->insertGlobalValues(tmp1,indicesJ(),valuesJ());
+
+                    if (setkII) {
+                        kII->insertGlobalValues(tmp1,indicesI(),valuesI());
+                    }
+
+                    if (setkIJ) {
+                        kIJ->insertGlobalValues(tmp1,indicesJ(),valuesJ());
+                    }
                 } else  {
                     tmp1=mapJ->getLocalElement((GO) i);
                     for (LO j=0; j<indices.size(); j++) {
@@ -502,15 +539,32 @@ namespace FROSch {
                             valuesJ.push_back(values[j]);
                         }
                     }
-                    kJI->insertGlobalValues(tmp1,indicesI(),valuesI());
-                    kJJ->insertGlobalValues(tmp1,indicesJ(),valuesJ());
+
+                    if (setkJI) {
+                        kJI->insertGlobalValues(tmp1,indicesI(),valuesI());
+                    }
+
+                    if (setkJJ) {
+                        kJJ->insertGlobalValues(tmp1,indicesJ(),valuesJ());
+                    }
                 }
             }
 
-            kII->fillComplete(mapILocal,mapILocal);
-            kIJ->fillComplete(mapJLocal,mapILocal);
-            kJI->fillComplete(mapILocal,mapJLocal);
-            kJJ->fillComplete(mapJLocal,mapJLocal);
+            if (setkII) {
+                kII->fillComplete(mapILocal,mapILocal);
+            }
+
+            if (setkIJ) {
+                kIJ->fillComplete(mapJLocal,mapILocal);
+            }
+
+            if (setkJI) {
+                kJI->fillComplete(mapILocal,mapJLocal);
+            }
+
+            if (setkJJ) {
+                kJJ->fillComplete(mapJLocal,mapJLocal);
+            }
         }
 
         return 0;
