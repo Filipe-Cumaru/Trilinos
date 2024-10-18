@@ -13,6 +13,7 @@
 #include <FROSch_ConstantPartitionOfUnity_def.hpp>
 #include <FROSch_GDSWInterfacePartitionOfUnity_def.hpp>
 #include <FROSch_GDSWStarInterfacePartitionOfUnity_def.hpp>
+#include <FROSch_AlgebraicMsFEMInterfacePartitionOfUnity_def.hpp>
 #include <FROSch_RGDSWInterfacePartitionOfUnity_def.hpp>
 
 #include <FROSch_HarmonicCoarseOperator_def.hpp>
