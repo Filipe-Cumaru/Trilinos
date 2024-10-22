@@ -3,14 +3,19 @@
 
 #include <FROSch_GDSWInterfacePartitionOfUnity_def.hpp>
 
-namespace FROSch
-{
+namespace FROSch {
+    using namespace Teuchos;
+    using namespace Xpetra;
+
+    // Forward declaration of the solver class.
+    template <class SC, class LO, class GO, class NO>
+    class Solver;
+
     template <class SC = double,
               class LO = int,
               class GO = DefaultGlobalOrdinal,
               class NO = Tpetra::KokkosClassic::DefaultNode::DefaultNodeType>
-    class AlgebraicMsFEMInterfacePartitionOfUnity : public GDSWInterfacePartitionOfUnity<SC, LO, GO, NO>
-    {
+    class AlgebraicMsFEMInterfacePartitionOfUnity : public GDSWInterfacePartitionOfUnity<SC, LO, GO, NO> {
     protected:
         using UN = typename PartitionOfUnity<SC, LO, GO, NO>::UN;
 
@@ -23,14 +28,19 @@ namespace FROSch
         using ParameterListPtr = typename PartitionOfUnity<SC, LO, GO, NO>::ParameterListPtr;
 
         using XMultiVector = typename PartitionOfUnity<SC, LO, GO, NO>::XMultiVector;
+        using XMultiVectorPtr = typename PartitionOfUnity<SC, LO, GO, NO>::XMultiVectorPtr;
         using ConstXMultiVectorPtr = typename PartitionOfUnity<SC, LO, GO, NO>::ConstXMultiVectorPtr;
         using ConstXMultiVectorPtrVecPtr = typename PartitionOfUnity<SC, LO, GO, NO>::ConstXMultiVectorPtrVecPtr;
 
+        using XMatrix = typename PartitionOfUnity<SC, LO, GO, NO>::XMatrix;
         using XMatrixPtr = typename PartitionOfUnity<SC, LO, GO, NO>::XMatrixPtr;
         using ConstXMatrixPtr = typename PartitionOfUnity<SC, LO, GO, NO>::ConstXMatrixPtr;
 
         using EntitySetPtr = typename PartitionOfUnity<SC, LO, GO, NO>::EntitySetPtr;
         using EntitySetConstPtr = const EntitySetPtr;
+        using EntitySetPtrVecPtr = typename PartitionOfUnity<SC, LO, GO, NO>::EntitySetPtrVecPtr;
+
+        using InterfaceEntityPtr = typename PartitionOfUnity<SC, LO, GO, NO>::InterfaceEntityPtr;
 
         using SolverPtr = RCP<Solver<SC, LO, GO, NO>>;
 
