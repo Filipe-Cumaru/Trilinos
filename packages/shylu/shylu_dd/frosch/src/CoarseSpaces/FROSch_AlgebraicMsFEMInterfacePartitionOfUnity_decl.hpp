@@ -60,6 +60,11 @@ namespace FROSch {
 
     protected:
         ConstXMatrixPtr K_;
+
+    private:
+        Array<GO> getEntityDofs(InterfaceEntityPtr entity);
+
+        Array<GO> getEntitySetDofs(EntitySetConstPtr entitySet);
     };
 }
 
