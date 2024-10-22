@@ -217,6 +217,50 @@ namespace FROSch {
         return localSubdomainMatrix.getConst();
     }
 
+    template <class SC, class LO, class GO, class NO>
+    RCP<const Matrix<SC, LO, GO, NO>> ExtractLocalSubdomainMatrixWithGlobalIdx(RCP<const Matrix<SC, LO, GO, NO>> globalMatrix,
+                                                                               RCP<const Map<LO, GO, NO>> map,
+                                                                               RCP<const Map<LO, GO, NO>> serialMap) {
+        FROSCH_DETAILTIMER_START(extractLocalSubdomainMatrixTime, "ExtractLocalSubdomainMatrixWithGlobalIdx");
+
+        RCP<Matrix<SC, LO, GO, NO>> scatteredMatrix = MatrixFactory<SC, LO, GO, NO>::Build(map,
+                                                                                           2 * globalMatrix->getGlobalMaxNumRowEntries());
+        RCP<Import<LO, GO, NO>> scatter = ImportFactory<LO, GO, NO>::Build(globalMatrix->getRowMap(),
+                                                                           map);
+        scatteredMatrix->doImport(*globalMatrix, *scatter, ADD);
+
+        RCP<Matrix<SC, LO, GO, NO>> localSubdomainMatrix = MatrixFactory<SC, LO, GO, NO>::Build(serialMap,
+                                                                                                globalMatrix->getGlobalMaxNumRowEntries());
+
+        for (unsigned i = 0; i < serialMap->getLocalNumElements(); i++) {
+            ArrayView<const GO> globalIndices;
+            ArrayView<const SC> globalValues;
+            scatteredMatrix->getGlobalRowView(serialMap->getGlobalElement(i),
+                                              globalIndices,
+                                              globalValues);
+
+            LO numGlobalRowEntries = globalIndices.size();
+            if (numGlobalRowEntries > 0) {
+                Array<GO> localIndices;
+                Array<SC> localValues;
+                for (LO j = 0; j < numGlobalRowEntries; j++) {
+                    GO localIndex = serialMap->getLocalElement(globalIndices[j]);
+                    if (localIndex >= 0) {
+                        localIndices.push_back(localIndex);
+                        localValues.push_back(globalValues[j]);
+                    }
+                }
+                localSubdomainMatrix->insertGlobalValues(serialMap->getGlobalElement(i),
+                                                         localIndices(),
+                                                         localValues());
+            }
+        }
+
+        localSubdomainMatrix->fillComplete(serialMap, serialMap);
+
+        return localSubdomainMatrix.getConst();
+    }
+
     template <class SC,class LO,class GO,class NO>
     int UpdateLocalSubdomainMatrix(RCP<Matrix<SC,LO,GO,NO> > globalMatrix,
                                    RCP<Map<LO,GO,NO> > &map,
