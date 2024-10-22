@@ -53,6 +53,11 @@ namespace FROSch {
                                                                 RCP<const Map<LO,GO,NO> > map,
                                                                 SC value);
 
+    template <class SC, class LO, class GO, class NO>
+    RCP<const Matrix<SC, LO, GO, NO>> ExtractLocalSubdomainMatrixWithGlobalIdx(RCP<const Matrix<SC, LO, GO, NO>> globalMatrix,
+                                                                               RCP<const Map<LO, GO, NO>> map,
+                                                                               RCP<const Map<LO, GO, NO>> serialMap);
+
     template <class SC,class LO,class GO,class NO>
     int UpdateLocalSubdomainMatrix(RCP<Matrix<SC,LO,GO,NO> > globalMatrix,
                                    RCP<Map<LO,GO,NO> > &map,
