@@ -268,7 +268,6 @@ namespace FROSch {
         FROSCH_DETAILTIMER_START(buildSubmatricesTime,"BuildSubmatrices");
         // We need four Maps
         const GO INVALID = Teuchos::OrdinalTraits<GO>::invalid();
-        // Getting stuck here.
         RCP<Map<LO,GO,NO> > mapI = MapFactory<LO,GO,NO>::Build(k->getRowMap()->lib(),INVALID,indI(),0,k->getRowMap()->getComm());
         RCP<Map<LO,GO,NO> > mapILocal = MapFactory<LO,GO,NO>::Build(k->getRowMap()->lib(),INVALID,indI.size(),0,k->getRowMap()->getComm());
 
