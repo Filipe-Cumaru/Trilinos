@@ -3,8 +3,7 @@
 
 #include <FROSch_AlgebraicMsFEMInterfacePartitionOfUnity_decl.hpp>
 
-namespace FROSch
-{
+namespace FROSch {
     template <class SC, class LO, class GO, class NO>
     AlgebraicMsFEMInterfacePartitionOfUnity<SC, LO, GO, NO>::AlgebraicMsFEMInterfacePartitionOfUnity(CommPtr mpiComm,
                                                                                                      CommPtr serialComm,
@@ -24,13 +23,12 @@ namespace FROSch
                                                                                                                                                                  parameterList,
                                                                                                                                                                  verbosity,
                                                                                                                                                                  levelID),
-                                                                                                                   K_(K)
-    {
+                                                                                                                   K_(K) {
         this->UseVertices_ = false;
         this->UseShortEdges_ = false;
         this->UseStraightEdges_ = false;
-        this->UseEdges_ = true;
-        this->UseFaces_ = true;
+        this->UseEdges_ = false;
+        this->UseFaces_ = false;
         this->LocalPartitionOfUnity_ = ConstXMultiVectorPtrVecPtr(1);
         this->PartitionOfUnityMaps_ = ConstXMapPtrVecPtr(1);
     }
