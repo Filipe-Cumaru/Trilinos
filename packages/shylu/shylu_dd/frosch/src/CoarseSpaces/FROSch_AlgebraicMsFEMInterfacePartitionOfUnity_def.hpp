@@ -34,6 +34,31 @@ namespace FROSch {
     }
 
     template <class SC, class LO, class GO, class NO>
+    Array<GO> AlgebraicMsFEMInterfacePartitionOfUnity<SC, LO, GO, NO>::getEntityDofs(InterfaceEntityPtr entity) {
+        UN dofsPerNode = this->DDInterface_->getInterface()->getEntity(0)->getDofsPerNode();
+        Array<GO> entityDofs;
+        for (UN i = 0; i < entity->getNumNodes(); i++) {
+            for (UN j = 0; j < dofsPerNode; j++) {
+                entityDofs.append(entity->getGlobalDofID(i, j));
+            }
+        }
+        return entityDofs;
+    }
+
+    template <class SC, class LO, class GO, class NO>
+    Array<GO> AlgebraicMsFEMInterfacePartitionOfUnity<SC, LO, GO, NO>::getEntitySetDofs(EntitySetConstPtr entitySet) {
+        Array<GO> entitySetDofs;
+        for (UN i = 0; i < entitySet->getNumEntities(); i++) {
+            InterfaceEntityPtr tmpEntity = entitySet->getEntity(i);
+            Array<GO> entityDofs = this->getEntityDofs(tmpEntity);
+            for (UN j = 0; j < entityDofs.size(); j++) {
+                entitySetDofs.append(entityDofs[j]);
+            }
+        }
+        return entitySetDofs;
+    }
+
+    template <class SC, class LO, class GO, class NO>
     int AlgebraicMsFEMInterfacePartitionOfUnity<SC, LO, GO, NO>::computePartitionOfUnity(ConstXMultiVectorPtr nodeList)
     {
         return GDSWInterfacePartitionOfUnity<SC, LO, GO, NO>::computePartitionOfUnity(nodeList);
