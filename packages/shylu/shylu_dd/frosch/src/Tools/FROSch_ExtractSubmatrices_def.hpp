@@ -233,30 +233,30 @@ namespace FROSch {
                                                                                                 globalMatrix->getGlobalMaxNumRowEntries());
 
         for (unsigned i = 0; i < serialMap->getLocalNumElements(); i++) {
-            ArrayView<const GO> globalIndices;
+            ArrayView<const GO> globalColIndices;
             ArrayView<const SC> globalValues;
-            scatteredMatrix->getGlobalRowView(serialMap->getGlobalElement(i),
-                                              globalIndices,
+            scatteredMatrix->getGlobalRowView(map->getGlobalElement(i),
+                                              globalColIndices,
                                               globalValues);
 
-            LO numGlobalRowEntries = globalIndices.size();
+            LO numGlobalRowEntries = globalColIndices.size();
             if (numGlobalRowEntries > 0) {
-                Array<GO> localIndices;
-                Array<SC> localValues;
+                Array<GO> subdomainColIndices;
+                Array<SC> subdomainValues;
                 for (LO j = 0; j < numGlobalRowEntries; j++) {
-                    GO localIndex = serialMap->getLocalElement(globalIndices[j]);
-                    if (localIndex >= 0) {
-                        localIndices.push_back(localIndex);
-                        localValues.push_back(globalValues[j]);
+                    LO localSubdomainIdx = map->getLocalElement(globalColIndices[j]);
+                    if (localSubdomainIdx >= 0) {
+                        subdomainColIndices.push_back(globalColIndices[j]);
+                        subdomainValues.push_back(globalValues[j]);
                     }
                 }
                 localSubdomainMatrix->insertGlobalValues(serialMap->getGlobalElement(i),
-                                                         localIndices(),
-                                                         localValues());
+                                                         subdomainColIndices(),
+                                                         subdomainValues());
             }
         }
 
-        localSubdomainMatrix->fillComplete(serialMap, serialMap);
+        localSubdomainMatrix->fillComplete();
 
         return localSubdomainMatrix.getConst();
     }
