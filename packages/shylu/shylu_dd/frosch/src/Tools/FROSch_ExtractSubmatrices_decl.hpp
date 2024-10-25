@@ -69,12 +69,7 @@ namespace FROSch {
                          RCP<const Matrix<SC,LO,GO,NO> > &kII,
                          RCP<const Matrix<SC,LO,GO,NO> > &kIJ,
                          RCP<const Matrix<SC,LO,GO,NO> > &kJI,
-                         RCP<const Matrix<SC,LO,GO,NO> > &kJJ,
-                         bool setkII = true,
-                         bool setkIJ = true,
-                         bool setkJI = true,
-                         bool setkJJ = true,
-                         ArrayView<GO> indJ = ArrayView<GO>(null));
+                         RCP<const Matrix<SC,LO,GO,NO> > &kJJ);
 
     template <class SC,class LO,class GO,class NO>
     int BuildSubmatrix(RCP<const Matrix<SC,LO,GO,NO>> k,
