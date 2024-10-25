@@ -72,7 +72,7 @@ namespace FROSch {
                                                                    this->SerialComm_);
         XMultiVectorPtr ipouVector = MultiVectorFactory<SC, LO, GO, NO>::Build(serialInterfaceMap,
                                                                                allRoots->getNumEntities());
-        
+
         for (UN i = 0; i < entitySetVector.size(); i++) {
             for (UN j = 0; j < entitySetVector[i]->getNumEntities(); j++) {
                 InterfaceEntityPtr currEntity = entitySetVector[i]->getEntity(j);
@@ -99,11 +99,11 @@ namespace FROSch {
                     XMatrixPtr kBV;
                     BuildSubmatrix(this->localK, currEntityDofs(), kBB);
                     BuildSubmatrix(this->localK,
-                                     currEntityDofs(),
+                                   currEntityDofs(),
                                    rootsDofs(),
                                    kBV);
                     BuildSubmatrix(this->localK,
-                                     currEntityDofs(),
+                                   currEntityDofs(),
                                    interiorDofs(),
                                    kBI);
 
