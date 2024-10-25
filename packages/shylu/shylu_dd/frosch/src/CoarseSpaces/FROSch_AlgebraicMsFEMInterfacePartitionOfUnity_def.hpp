@@ -73,6 +73,7 @@ namespace FROSch {
         XMultiVectorPtr ipouVector = MultiVectorFactory<SC, LO, GO, NO>::Build(serialInterfaceMap,
                                                                                allRoots->getNumEntities());
 
+        RCP<basic_FancyOStream<char>> blackHoleStream = getFancyOStream(rcp(new oblackholestream()));
         for (UN i = 0; i < entitySetVector.size(); i++) {
             for (UN j = 0; j < entitySetVector[i]->getNumEntities(); j++) {
                 InterfaceEntityPtr currEntity = entitySetVector[i]->getEntity(j);
@@ -115,13 +116,17 @@ namespace FROSch {
                     kBI->apply(*ones, *kBIRowSum);
 
                     // kBBMod = kBB + diag(kBIRowSum)
-                    XMatrixPtr kBBMod = MatrixFactory<SC, LO, GO, NO>::Build(kBIRowSum->getVector(0));
-                    kBBMod->resumeFill();
+                    XMatrixPtr diagKBI = MatrixFactory<SC, LO, GO, NO>::Build(kBIRowSum->getVector(0));
+                    XMatrixPtr kBBMod;
                     MatrixMatrix<SC, LO, GO, NO>::TwoMatrixAdd(*kBB,
                                                                false,
                                                                ScalarTraits<SC>::one(),
-                                                               *kBBMod,
-                                                               ScalarTraits<SC>::one());
+                                                               *diagKBI,
+                                                               false,
+                                                               ScalarTraits<SC>::one(),
+                                                               kBBMod,
+                                                               *blackHoleStream,
+                                                               false);
 
                     // Initialization of the interface solver.
                     SolverPtr kBBSolver = SolverFactory<SC, LO, GO, NO>::Build(kBB,
