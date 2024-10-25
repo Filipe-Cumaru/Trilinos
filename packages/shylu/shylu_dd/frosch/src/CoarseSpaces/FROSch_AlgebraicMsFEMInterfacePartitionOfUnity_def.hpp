@@ -65,7 +65,7 @@ namespace FROSch {
         EntitySetConstPtr interiorSet = this->DDInterface_->getInterior();
         Array<GO> interiorDofs = this->getEntitySetDofs(interiorSet);
 
-        // Initialization of a vector to store the interface IPOU values.
+        // Initialization of a vector to store the IPOU values.
         XMapPtr serialInterfaceMap = MapFactory<LO, GO, NO>::Build(this->DDInterface_->getNodesMap()->lib(),
                                                                    numInterfaceDofs,
                                                                    0,
@@ -73,7 +73,6 @@ namespace FROSch {
         XMultiVectorPtr ipouVector = MultiVectorFactory<SC, LO, GO, NO>::Build(serialInterfaceMap,
                                                                                allRoots->getNumEntities());
         
-        XMatrixPtr matrixNullPtr;
         for (UN i = 0; i < entitySetVector.size(); i++) {
             for (UN j = 0; j < entitySetVector[i]->getNumEntities(); j++) {
                 InterfaceEntityPtr currEntity = entitySetVector[i]->getEntity(j);
@@ -98,28 +97,15 @@ namespace FROSch {
                     XMatrixPtr kBI;
                     XMatrixPtr kBB;
                     XMatrixPtr kBV;
-                    BuildSubmatrices(this->localK,
+                    BuildSubmatrix(this->localK, currEntityDofs(), kBB);
+                    BuildSubmatrix(this->localK,
                                      currEntityDofs(),
-                                     matrixNullPtr,
-                                     kBI,
-                                     matrixNullPtr,
-                                     matrixNullPtr,
-                                     false,
-                                     true,
-                                     false,
-                                     false,
-                                     interiorDofs());
-                    BuildSubmatrices(this->localK,
+                                   rootsDofs(),
+                                   kBV);
+                    BuildSubmatrix(this->localK,
                                      currEntityDofs(),
-                                     kBB,
-                                     kBV,
-                                     matrixNullPtr,
-                                     matrixNullPtr,
-                                     true,
-                                     true,
-                                     false,
-                                     false,
-                                     rootsDofs());
+                                   interiorDofs(),
+                                   kBI);
 
                     // kBIRowSum = kBI * 1_I, 1_I = (1 ... 1)
                     // This is equivalent to adding the rows of kBI.
