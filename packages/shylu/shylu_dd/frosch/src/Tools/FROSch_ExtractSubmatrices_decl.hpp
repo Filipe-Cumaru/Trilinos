@@ -77,9 +77,15 @@ namespace FROSch {
                          ArrayView<GO> indJ = ArrayView<GO>(null));
 
     template <class SC,class LO,class GO,class NO>
-    int BuildSubmatrix(RCP<const Matrix<SC,LO,GO,NO> > k,
+    int BuildSubmatrix(RCP<const Matrix<SC,LO,GO,NO>> k,
                        ArrayView<GO> indI,
-                       RCP<const Matrix<SC,LO,GO,NO> > &kII);
+                       RCP<Matrix<SC,LO,GO,NO>> &kII);
+
+    template <class SC,class LO,class GO,class NO>
+    int BuildSubmatrix(RCP<const Matrix<SC,LO,GO,NO>> k,
+                       ArrayView<GO> indI,
+                       ArrayView<GO> indJ,
+                       RCP<Matrix<SC,LO,GO,NO>> &kIJ);
 
     template <class LO,class GO,class NO>
     int BuildSubgraph(RCP<const CrsGraph<LO,GO,NO> > k,
