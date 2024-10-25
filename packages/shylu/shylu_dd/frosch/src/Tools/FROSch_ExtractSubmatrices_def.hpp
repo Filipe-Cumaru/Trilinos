@@ -613,43 +613,57 @@ namespace FROSch {
         return 0;
     }
 
-
-    template <class SC,class LO,class GO,class NO>
-    int BuildSubmatrix(RCP<Matrix<SC,LO,GO,NO> > k,
+    template <class SC, class LO, class GO, class NO>
+    int BuildSubmatrix(RCP<const Matrix<SC, LO, GO, NO>> k,
                        ArrayView<GO> indI,
-                       RCP<Matrix<SC,LO,GO,NO> > &kII)
-    {
-        FROSCH_DETAILTIMER_START(buildSubmatrixTime,"BuildSubmatrix");
+                       RCP<Matrix<SC, LO, GO, NO>> &kII) {
+        return BuildSubmatrix(k, indI, indI, kII);
+    }
+
+    template <class SC, class LO, class GO, class NO>
+    int BuildSubmatrix(RCP<const Matrix<SC, LO, GO, NO>> k,
+                       ArrayView<GO> indI,
+                       ArrayView<GO> indJ,
+                       RCP<Matrix<SC, LO, GO, NO>> &kIJ) {
+        FROSCH_DETAILTIMER_START(buildSubmatrixTime, "BuildSubmatrix");
+
         const GO INVALID = Teuchos::OrdinalTraits<GO>::invalid();
-        //RCP<FancyOStream> fancy = fancyOStream(rcpFromRef(cout));
-        RCP<Map<LO,GO,NO> > mapI = MapFactory<LO,GO,NO>::Build(k->getRowMap()->lib(),INVALID,indI(),0,k->getRowMap()->getComm());
+        RCP<Map<LO, GO, NO>> mapI = MapFactory<LO, GO, NO>::Build(k->getRowMap()->lib(),
+                                                                  INVALID,
+                                                                  indI(),
+                                                                  0,
+                                                                  k->getRowMap()->getComm());
+        RCP<Map<LO, GO, NO>> mapJ = MapFactory<LO, GO, NO>::Build(k->getRowMap()->lib(),
+                                                                  INVALID,
+                                                                  indJ,
+                                                                  0,
+                                                                  k->getRowMap()->getComm());
+        kIJ = MatrixFactory<SC, LO, GO, NO>::Build(mapI, mapJ, indJ.size());
 
-        kII = MatrixFactory<SC,LO,GO,NO>::Build(mapI,min((LO) k->getGlobalMaxNumRowEntries(),(LO) indI.size()));
-        GO maxGID = mapI->getMaxAllGlobalIndex();
-        GO minGID = mapI->getMinAllGlobalIndex();
-        for (unsigned i=0; i<k->getLocalNumRows(); i++) {
-            ArrayView<const LO> indices;
-            ArrayView<const SC> values;
+        for (unsigned i = 0; i < k->getLocalNumRows(); i++) {
+            ArrayView<const LO> localColIndices;
+            ArrayView<const SC> localValues;
+            k->getLocalRowView(i, localColIndices, localValues);
 
-            k->getLocalRowView(i,indices,values);
-
-            Array<GO> indicesI;
-            Array<SC> valuesI;
-
-            LO tmp1=mapI->getLocalElement(k->getRowMap()->getGlobalElement(i));
-            GO tmp2=0;
-            if (tmp1>=0) {
-                for (LO j=0; j<indices.size(); j++) {
-                    tmp2 = k->getColMap()->getGlobalElement(indices[j]);
-                    if (minGID<=tmp2 && tmp2<=maxGID) {
-                        indicesI.push_back(tmp2);
-                        valuesI.push_back(values[j]);
+            Array<GO> submatrixColIndices;
+            Array<SC> submatrixValues;
+            LO tmp1 = mapI->getLocalElement(k->getRowMap()->getGlobalElement(i));
+            GO tmp2 = 0;
+            if (tmp1 >= 0) {
+                for (LO j = 0; j < localColIndices.size(); j++) {
+                    tmp2 = k->getColMap()->getGlobalElement(localColIndices[j]);
+                    if (mapJ->getLocalElement(tmp2) >= 0) {
+                        submatrixColIndices.push_back(tmp2);
+                        submatrixValues.push_back(localValues[j]);
                     }
                 }
-                kII->insertGlobalValues(mapI->getGlobalElement(tmp1),indicesI(),valuesI());
+                kIJ->insertGlobalValues(mapI->getGlobalElement(tmp1),
+                                        submatrixColIndices(),
+                                        submatrixValues());
             }
         }
-        kII->fillComplete(mapI,mapI);
+
+        kIJ->fillComplete(mapJ, mapI);
 
         return 0;
     }
