@@ -43,7 +43,6 @@ namespace FROSch {
 
         UN dofsPerNode = this->DDInterface_->getInterface()->getEntity(0)->getDofsPerNode();
         UN numInterfaceDofs = dofsPerNode * this->DDInterface_->getInterface()->getEntity(0)->getNumNodes();
-        UN numInteriorDofs = dofsPerNode * this->DDInterface_->getInterior()->getEntity(0)->getNumNodes();
 
         // Initialization of the interface data structures.
         this->DDInterface_->buildEntityHierarchy();
