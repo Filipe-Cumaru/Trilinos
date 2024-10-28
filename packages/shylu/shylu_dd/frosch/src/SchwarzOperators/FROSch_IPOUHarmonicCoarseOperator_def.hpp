@@ -302,7 +302,7 @@ namespace FROSch {
                 interfacePartitionOfUnity = InterfacePartitionOfUnityPtr(new RGDSWInterfacePartitionOfUnity<SC,LO,GO,NO>(this->MpiComm_,this->SerialComm_,dimension,this->DofsPerNode_[blockId],nodesMap,this->DofsMaps_[blockId],sublist(sublist(coarseSpaceList,"InterfacePartitionOfUnity"),"RGDSW"),verbosity,this->LevelID_));
                 this->PartitionType_ = 1;
             } else if (!coarseSpaceList->sublist("InterfacePartitionOfUnity").get("Type","GDSW").compare("AlgebraicMsFEM")) {
-                coarseSpaceList->sublist("InterfacePartitionOfUnity").sublist("AlgebraicMsfem").set("Test Unconnected Interface",this->ParameterList_->get("Test Unconnected Interface",true));
+                coarseSpaceList->sublist("InterfacePartitionOfUnity").sublist("AlgebraicMsFEM").set("Test Unconnected Interface",this->ParameterList_->get("Test Unconnected Interface",true));
                 interfacePartitionOfUnity = InterfacePartitionOfUnityPtr(
                     new AlgebraicMsFEMInterfacePartitionOfUnity<SC, LO, GO, NO>(
                         this->MpiComm_,
@@ -311,7 +311,7 @@ namespace FROSch {
                         this->DofsPerNode_[blockId],
                         nodesMap,
                         this->DofsMaps_[blockId],
-                        sublist(sublist(coarseSpaceList, "InterfacePartitionOfUnity"), "AlgebraicMsfem"),
+                        sublist(sublist(coarseSpaceList, "InterfacePartitionOfUnity"), "AlgebraicMsFEM"),
                         this->K_,
                         verbosity,
                         this->LevelID_));
