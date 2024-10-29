@@ -126,9 +126,10 @@ namespace FROSch {
                                                                kBBMod,
                                                                *blackHoleStream,
                                                                false);
+                    kBBMod->fillComplete();
 
                     // Initialization of the interface solver.
-                    SolverPtr kBBSolver = SolverFactory<SC, LO, GO, NO>::Build(kBB,
+                    SolverPtr kBBSolver = SolverFactory<SC, LO, GO, NO>::Build(kBBMod,
                                                                                sublist(this->ParameterList_, "InterfaceSolver"),
                                                                                string(""));
                     kBBSolver->initialize();
@@ -156,8 +157,14 @@ namespace FROSch {
                     for (UN k = 0; k < numRoots; k++) {
                         LO rootIdx = roots->getEntity(k)->getRootID();
                         ArrayRCP<const SC> mVPhiBVk = mVPhiBV->getData(k);
-                        for (UN l = 0; l < mVPhiBVk.size(); l++) {
-                            ipouVector->replaceLocalValue(l, rootIdx, mVPhiBVk[l]);
+                        UN n = 0;
+                        for (UN l = 0; l < currEntity->getNumNodes(); l++) {
+                            for (UN m = 0; m < dofsPerNode; m++) {
+                                ipouVector->replaceLocalValue(currEntity->getGammaDofID(l, m),
+                                                              rootIdx,
+                                                              -mVPhiBVk[n]);
+                                n += 1;
+                            }
                         }
                     }
                 } else {
