@@ -235,9 +235,9 @@ namespace FROSch {
                                                                0,
                                                                this->SerialComm_);
 
-        this->localK = ExtractLocalSubdomainMatrixWithGlobalIdx(this->K_,
-                                                                localMap.getConst(),
-                                                                localSerialMap.getConst());
+        this->localK = ExtractLocalSubdomainMatrix(this->K_,
+                                                   localMap.getConst(),
+                                                   localSerialMap.getConst());
     }
 }
 

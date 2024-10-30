@@ -26,10 +26,6 @@ namespace FROSch {
     using namespace Teuchos;
     using namespace Xpetra;
 
-    template <class SC,class LO,class GO,class NO>
-    RCP<const Matrix<SC,LO,GO,NO> > ExtractLocalSubdomainMatrix(RCP<const Matrix<SC,LO,GO,NO> > globalMatrix,
-                                                                RCP<const Map<LO,GO,NO> > map);
-
     // ----------------------------------------------------------- //
     // split ExtractLocalSubdomainMatrix into symbolic / compute
     template <class SC,class LO,class GO,class NO>
@@ -48,15 +44,28 @@ namespace FROSch {
                                              RCP<      Matrix<SC,LO,GO,NO> > repeatedMatrix);
     // ----------------------------------------------------------- //
 
-    template <class SC,class LO,class GO,class NO>
-    RCP<const Matrix<SC,LO,GO,NO> > ExtractLocalSubdomainMatrix(RCP<const Matrix<SC,LO,GO,NO> > globalMatrix,
-                                                                RCP<const Map<LO,GO,NO> > map,
-                                                                SC value);
-
+    // ----------------------------------------------------------- //
+    // Extracts the submatrix with the global indices given in map to a local
+    // communicator.
     template <class SC, class LO, class GO, class NO>
-    RCP<const Matrix<SC, LO, GO, NO>> ExtractLocalSubdomainMatrixWithGlobalIdx(RCP<const Matrix<SC, LO, GO, NO>> globalMatrix,
-                                                                               RCP<const Map<LO, GO, NO>> map,
-                                                                               RCP<const Map<LO, GO, NO>> serialMap);
+    RCP<const Matrix<SC, LO, GO, NO>> ExtractLocalSubdomainMatrix(RCP<const Matrix<SC, LO, GO, NO>> globalMatrix,
+                                                                  RCP<const Map<LO, GO, NO>> map);
+
+    // Extracts the submatrix with the global indices given in map to a local
+    // communicator. The non-zero entries in the submatrix are replaced by `value`.
+    template <class SC, class LO, class GO, class NO>
+    RCP<const Matrix<SC, LO, GO, NO>> ExtractLocalSubdomainMatrix(RCP<const Matrix<SC, LO, GO, NO>> globalMatrix,
+                                                                  RCP<const Map<LO, GO, NO>> map,
+                                                                  SC value);
+
+    // Extracts the submatrix with the global indices given in map to a local
+    // communicator. The row and column map of the resulting submatrix are 
+    // given by `serialMap`.
+    template <class SC, class LO, class GO, class NO>
+    RCP<const Matrix<SC, LO, GO, NO>> ExtractLocalSubdomainMatrix(RCP<const Matrix<SC, LO, GO, NO>> globalMatrix,
+                                                                  RCP<const Map<LO, GO, NO>> map,
+                                                                  RCP<const Map<LO, GO, NO>> serialMap);
+    // ----------------------------------------------------------- //
 
     template <class SC,class LO,class GO,class NO>
     int UpdateLocalSubdomainMatrix(RCP<Matrix<SC,LO,GO,NO> > globalMatrix,
