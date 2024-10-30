@@ -18,42 +18,6 @@ namespace FROSch {
     using namespace Teuchos;
     using namespace Xpetra;
 
-    template <class SC,class LO,class GO,class NO>
-    RCP<const Matrix<SC,LO,GO,NO> > ExtractLocalSubdomainMatrix(RCP<const Matrix<SC,LO,GO,NO> > globalMatrix,
-                                                                RCP<const Map<LO,GO,NO> > map)
-    {
-        FROSCH_DETAILTIMER_START(extractLocalSubdomainMatrixTime,"ExtractLocalSubdomainMatrix");
-        RCP<Matrix<SC,LO,GO,NO> > subdomainMatrix = MatrixFactory<SC,LO,GO,NO>::Build(map,globalMatrix->getGlobalMaxNumRowEntries());
-        RCP<Import<LO,GO,NO> > scatter = ImportFactory<LO,GO,NO>::Build(globalMatrix->getRowMap(),map);
-        subdomainMatrix->doImport(*globalMatrix,*scatter,ADD);
-        //cout << *subdomainMatrix << endl;
-        RCP<const Comm<LO> > SerialComm = rcp(new MpiComm<LO>(MPI_COMM_SELF));
-        RCP<Map<LO,GO,NO> > localSubdomainMap = MapFactory<LO,GO,NO>::Build(map->lib(),map->getLocalNumElements(),0,SerialComm);
-        RCP<Matrix<SC,LO,GO,NO> > localSubdomainMatrix = MatrixFactory<SC,LO,GO,NO>::Build(localSubdomainMap,globalMatrix->getGlobalMaxNumRowEntries());
-
-        for (unsigned i=0; i<localSubdomainMap->getLocalNumElements(); i++) {
-            ArrayView<const GO> indices;
-            ArrayView<const SC> values;
-            subdomainMatrix->getGlobalRowView(map->getGlobalElement(i),indices,values);
-
-            LO size = indices.size();
-            if (size>0) {
-                Array<GO> indicesLocal;
-                Array<SC> valuesLocal;
-                for (LO j=0; j<size; j++) {
-                    GO localIndex = map->getLocalElement(indices[j]);
-                    if (localIndex>=0) {
-                        indicesLocal.push_back(localIndex);
-                        valuesLocal.push_back(values[j]);
-                    }
-                }
-                localSubdomainMatrix->insertGlobalValues(i,indicesLocal(),valuesLocal());
-            }
-        }
-        localSubdomainMatrix->fillComplete();
-        return localSubdomainMatrix.getConst();
-    }
-
     // this version just read indices without building submatrices, which is done in extractLocalSubdomainMatrix_Symbolic
     template <class SC,class LO,class GO,class NO>
     void ExtractLocalSubdomainMatrix_Symbolic(RCP<Matrix<SC,LO,GO,NO> > subdomainMatrix,       // input  : globalMatrix, re-distributed with map
@@ -180,37 +144,45 @@ namespace FROSch {
         return;
     }
 
-    template <class SC,class LO,class GO,class NO>
-    RCP<const Matrix<SC,LO,GO,NO> > ExtractLocalSubdomainMatrix(RCP<const Matrix<SC,LO,GO,NO> > globalMatrix,
-                                                                RCP<const Map<LO,GO,NO> > map,
-                                                                SC value)
-    {
-        FROSCH_DETAILTIMER_START(extractLocalSubdomainMatrixTime,"ExtractLocalSubdomainMatrix");
-        RCP<Matrix<SC,LO,GO,NO> > subdomainMatrix = MatrixFactory<SC,LO,GO,NO>::Build(map,2*globalMatrix->getGlobalMaxNumRowEntries());
-        RCP<Import<LO,GO,NO> > scatter = ImportFactory<LO,GO,NO>::Build(globalMatrix->getRowMap(),map);
-        subdomainMatrix->doImport(*globalMatrix,*scatter,ADD);
-        //cout << *subdomainMatrix << endl;
-        RCP<const Comm<LO> > SerialComm = rcp(new MpiComm<LO>(MPI_COMM_SELF));
-        RCP<Map<LO,GO,NO> > localSubdomainMap = MapFactory<LO,GO,NO>::Build(map->lib(),map->getLocalNumElements(),0,SerialComm);
-        RCP<Matrix<SC,LO,GO,NO> > localSubdomainMatrix = MatrixFactory<SC,LO,GO,NO>::Build(localSubdomainMap,globalMatrix->getGlobalMaxNumRowEntries());
+    template <class SC, class LO, class GO, class NO>
+    RCP<const Matrix<SC, LO, GO, NO>> ExtractLocalSubdomainMatrix(RCP<const Matrix<SC, LO, GO, NO>> globalMatrix,
+                                                                  RCP<const Map<LO, GO, NO>> map) {
+        FROSCH_DETAILTIMER_START(extractLocalSubdomainMatrixTime, "ExtractLocalSubdomainMatrix");
+        RCP<Matrix<SC, LO, GO, NO>> subdomainMatrix = MatrixFactory<SC, LO, GO, NO>::Build(map,
+                                                                                           globalMatrix->getGlobalMaxNumRowEntries());
+        RCP<Import<LO, GO, NO>> scatter = ImportFactory<LO, GO, NO>::Build(globalMatrix->getRowMap(),
+                                                                           map);
+        subdomainMatrix->doImport(*globalMatrix, *scatter, ADD);
 
-        for (unsigned i=0; i<localSubdomainMap->getLocalNumElements(); i++) {
+        RCP<const Comm<LO>> SerialComm = rcp(new MpiComm<LO>(MPI_COMM_SELF));
+        RCP<Map<LO, GO, NO>> localSubdomainMap = MapFactory<LO, GO, NO>::Build(map->lib(),
+                                                                               map->getLocalNumElements(),
+                                                                               0,
+                                                                               SerialComm);
+        RCP<Matrix<SC, LO, GO, NO>> localSubdomainMatrix = MatrixFactory<SC, LO, GO, NO>::Build(localSubdomainMap,
+                                                                                                globalMatrix->getGlobalMaxNumRowEntries());
+
+        for (unsigned i = 0; i < localSubdomainMap->getLocalNumElements(); i++) {
             ArrayView<const GO> indices;
             ArrayView<const SC> values;
-            subdomainMatrix->getGlobalRowView(map->getGlobalElement(i),indices,values);
+            subdomainMatrix->getGlobalRowView(map->getGlobalElement(i),
+                                              indices,
+                                              values);
 
             LO size = indices.size();
-            if (size>0) {
-                Array<GO> indicesGlobal;
+            if (size > 0) {
+                Array<GO> indicesLocal;
                 Array<SC> valuesLocal;
-                for (LO j=0; j<size; j++) {
+                for (LO j = 0; j < size; j++) {
                     GO localIndex = map->getLocalElement(indices[j]);
-                    if (localIndex>=0) {
-                        indicesGlobal.push_back(localIndex);
-                        valuesLocal.push_back(value);
+                    if (localIndex >= 0) {
+                        indicesLocal.push_back(localIndex);
+                        valuesLocal.push_back(values[j]);
                     }
                 }
-                localSubdomainMatrix->insertGlobalValues(i,indicesGlobal(),valuesLocal());
+                localSubdomainMatrix->insertGlobalValues(i,
+                                                         indicesLocal(),
+                                                         valuesLocal());
             }
         }
         localSubdomainMatrix->fillComplete();
@@ -218,10 +190,56 @@ namespace FROSch {
     }
 
     template <class SC, class LO, class GO, class NO>
-    RCP<const Matrix<SC, LO, GO, NO>> ExtractLocalSubdomainMatrixWithGlobalIdx(RCP<const Matrix<SC, LO, GO, NO>> globalMatrix,
-                                                                               RCP<const Map<LO, GO, NO>> map,
-                                                                               RCP<const Map<LO, GO, NO>> serialMap) {
-        FROSCH_DETAILTIMER_START(extractLocalSubdomainMatrixTime, "ExtractLocalSubdomainMatrixWithGlobalIdx");
+    RCP<const Matrix<SC, LO, GO, NO>> ExtractLocalSubdomainMatrix(RCP<const Matrix<SC, LO, GO, NO>> globalMatrix,
+                                                                  RCP<const Map<LO, GO, NO>> map,
+                                                                  SC value) {
+        FROSCH_DETAILTIMER_START(extractLocalSubdomainMatrixTime, "ExtractLocalSubdomainMatrix");
+        RCP<Matrix<SC, LO, GO, NO>> subdomainMatrix = MatrixFactory<SC, LO, GO, NO>::Build(map,
+                                                                                           2 * globalMatrix->getGlobalMaxNumRowEntries());
+        RCP<Import<LO, GO, NO>> scatter = ImportFactory<LO, GO, NO>::Build(globalMatrix->getRowMap(),
+                                                                           map);
+        subdomainMatrix->doImport(*globalMatrix, *scatter, ADD);
+
+        RCP<const Comm<LO>> SerialComm = rcp(new MpiComm<LO>(MPI_COMM_SELF));
+        RCP<Map<LO, GO, NO>> localSubdomainMap = MapFactory<LO, GO, NO>::Build(map->lib(),
+                                                                               map->getLocalNumElements(),
+                                                                               0,
+                                                                               SerialComm);
+        RCP<Matrix<SC, LO, GO, NO>> localSubdomainMatrix = MatrixFactory<SC, LO, GO, NO>::Build(localSubdomainMap,
+                                                                                                globalMatrix->getGlobalMaxNumRowEntries());
+
+        for (unsigned i = 0; i < localSubdomainMap->getLocalNumElements(); i++) {
+            ArrayView<const GO> indices;
+            ArrayView<const SC> values;
+            subdomainMatrix->getGlobalRowView(map->getGlobalElement(i),
+                                              indices,
+                                              values);
+
+            LO size = indices.size();
+            if (size > 0) {
+                Array<GO> indicesGlobal;
+                Array<SC> valuesLocal;
+                for (LO j = 0; j < size; j++) {
+                    GO localIndex = map->getLocalElement(indices[j]);
+                    if (localIndex >= 0) {
+                        indicesGlobal.push_back(localIndex);
+                        valuesLocal.push_back(value);
+                    }
+                }
+                localSubdomainMatrix->insertGlobalValues(i,
+                                                         indicesGlobal(),
+                                                         valuesLocal());
+            }
+        }
+        localSubdomainMatrix->fillComplete();
+        return localSubdomainMatrix.getConst();
+    }
+
+    template <class SC, class LO, class GO, class NO>
+    RCP<const Matrix<SC, LO, GO, NO>> ExtractLocalSubdomainMatrix(RCP<const Matrix<SC, LO, GO, NO>> globalMatrix,
+                                                                  RCP<const Map<LO, GO, NO>> map,
+                                                                  RCP<const Map<LO, GO, NO>> serialMap) {
+        FROSCH_DETAILTIMER_START(extractLocalSubdomainMatrixTime, "ExtractLocalSubdomainMatrix");
 
         RCP<Matrix<SC, LO, GO, NO>> scatteredMatrix = MatrixFactory<SC, LO, GO, NO>::Build(map,
                                                                                            2 * globalMatrix->getGlobalMaxNumRowEntries());
