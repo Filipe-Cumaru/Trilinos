@@ -110,9 +110,9 @@ namespace FROSch {
                     // kBIRowSum = kBI * 1_I, 1_I = (1 ... 1)
                     // This is equivalent to adding the rows of kBI.
                     XMultiVectorPtr kBIRowSum = MultiVectorFactory<SC, LO, GO, NO>::Build(kBI->getRangeMap(), 1);
-                    XMultiVectorPtr ones = MultiVectorFactory<SC, LO, GO, NO>::Build(kBI->getDomainMap(), 1);
-                    ones->putScalar(ScalarTraits<SC>::one());
-                    kBI->apply(*ones, *kBIRowSum);
+                    XMultiVectorPtr onesI = MultiVectorFactory<SC, LO, GO, NO>::Build(kBI->getDomainMap(), 1);
+                    onesI->putScalar(ScalarTraits<SC>::one());
+                    kBI->apply(*onesI, *kBIRowSum);
 
                     // kBBMod = kBB + diag(kBIRowSum)
                     XMatrixPtr diagKBI = MatrixFactory<SC, LO, GO, NO>::Build(kBIRowSum->getVector(0));
@@ -153,6 +153,19 @@ namespace FROSch {
                                                                                         rootsDofs.size());
                     kBBSolver->apply(*mVkBV, *mVPhiBV);
 
+                    // Add up the interface values to get a POU. This is done by multiplying
+                    // mVPhiBV by a vector of ones (onesV).
+                    XMultiVectorPtr onesV = MultiVectorFactory<SC, LO, GO, NO>::Build(kBV->getDomainMap(), 1);
+                    XMultiVectorPtr mVSumPhiBV = MultiVectorFactory<SC, LO, GO, NO>::Build(kBV->getRangeMap(), 1);
+                    onesV->putScalar(ScalarTraits<SC>::one());
+                    mVSumPhiBV->multiply(Teuchos::ETransp::NO_TRANS,
+                                         Teuchos::ETransp::NO_TRANS,
+                                         ScalarTraits<SC>::one(),
+                                         *mVPhiBV,
+                                         *onesV,
+                                         ScalarTraits<SC>::zero());
+                    ArrayRCP<const SC> sumPhiBV = mVSumPhiBV->getData(0);
+
                     // Set the entries on the IPOU vector.
                     for (UN k = 0; k < numRoots; k++) {
                         LO rootIdx = roots->getEntity(k)->getRootID();
@@ -160,9 +173,10 @@ namespace FROSch {
                         UN n = 0;
                         for (UN l = 0; l < currEntity->getNumNodes(); l++) {
                             for (UN m = 0; m < dofsPerNode; m++) {
+                                SC value = mVPhiBVk[n] / sumPhiBV[n];
                                 ipouVector->replaceLocalValue(currEntity->getGammaDofID(l, m),
                                                               rootIdx,
-                                                              -mVPhiBVk[n]);
+                                                              value * ScalarTraits<SC>::one());
                                 n += 1;
                             }
                         }
