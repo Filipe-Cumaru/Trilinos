@@ -151,7 +151,9 @@ namespace FROSch {
                     // Compute the solution on the interface.
                     XMultiVectorPtr mVPhiBV = MultiVectorFactory<SC, LO, GO, NO>::Build(kBB->getDomainMap(),
                                                                                         rootsDofs.size());
-                    kBBSolver->apply(*mVkBV, *mVPhiBV);
+                    for (UN k = 0; k < rootsDofs.size(); k++) {
+                        kBBSolver->apply(*mVkBV->getVector(k), *mVPhiBV->getVectorNonConst(k));
+                    }
 
                     // Add up the interface values to get a POU. This is done by multiplying
                     // mVPhiBV by a vector of ones (onesV).
