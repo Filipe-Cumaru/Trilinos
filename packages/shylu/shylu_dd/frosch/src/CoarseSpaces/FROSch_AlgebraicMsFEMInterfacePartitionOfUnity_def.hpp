@@ -88,6 +88,8 @@ namespace FROSch {
                     EntitySetPtr roots = currEntity->getRoots();
                     Array<GO> rootsDofs = this->getEntitySetDofs(roots);
                     Array<GO> currEntityDofs = this->getEntityDofs(currEntity);
+                    Array<GO> otherDofs = this->getEntitySetDofs(currEntity->getOffspring());
+                    otherDofs.insert(otherDofs.end(), interiorDofs.begin(), interiorDofs.end());
 
                     // Exract the submatrices required to assemble the IPOU.
                     // These are equivalent to the blocks in the wirebasket order:
@@ -104,7 +106,7 @@ namespace FROSch {
                                    kBV);
                     BuildSubmatrix(this->localK,
                                    currEntityDofs(),
-                                   interiorDofs(),
+                                   otherDofs(),
                                    kBI);
 
                     // kBIRowSum = kBI * 1_I, 1_I = (1 ... 1)
