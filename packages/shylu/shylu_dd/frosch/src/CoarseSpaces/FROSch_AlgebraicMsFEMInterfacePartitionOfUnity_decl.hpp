@@ -72,6 +72,12 @@ namespace FROSch {
         RCP<Solver<SC, LO, GO, NO>> initializeLocalInterfaceSolver(const XMatrixPtr kII,
                                                                    const XMatrixPtr kIJ);
 
+        void addAncestorExtensionTerm(InterfaceEntityPtr entity,
+                                      Array<GO>& entityDofs,
+                                      Array<GO>& rootsDofs,
+                                      Array<GO>& interiorDofs,
+                                      RCP<Solver<SC, LO, GO, NO>> kBBSolver,
+                                      XMultiVectorPtr mVPhiBV);
     };
 }
 
