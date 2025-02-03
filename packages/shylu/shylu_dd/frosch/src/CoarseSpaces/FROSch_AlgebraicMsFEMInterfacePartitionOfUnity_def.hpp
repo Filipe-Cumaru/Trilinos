@@ -109,33 +109,7 @@ namespace FROSch {
                                    otherDofs(),
                                    kBI);
 
-                    // kBIRowSum = kBI * 1_I, 1_I = (1 ... 1)
-                    // This is equivalent to adding the rows of kBI.
-                    XMultiVectorPtr kBIRowSum = MultiVectorFactory<SC, LO, GO, NO>::Build(kBI->getRangeMap(), 1);
-                    XMultiVectorPtr onesI = MultiVectorFactory<SC, LO, GO, NO>::Build(kBI->getDomainMap(), 1);
-                    onesI->putScalar(ScalarTraits<SC>::one());
-                    kBI->apply(*onesI, *kBIRowSum);
-
-                    // kBBMod = kBB + diag(kBIRowSum)
-                    XMatrixPtr diagKBI = MatrixFactory<SC, LO, GO, NO>::Build(kBIRowSum->getVector(0));
-                    XMatrixPtr kBBMod;
-                    MatrixMatrix<SC, LO, GO, NO>::TwoMatrixAdd(*kBB,
-                                                               false,
-                                                               ScalarTraits<SC>::one(),
-                                                               *diagKBI,
-                                                               false,
-                                                               ScalarTraits<SC>::one(),
-                                                               kBBMod,
-                                                               *blackHoleStream,
-                                                               false);
-                    kBBMod->fillComplete();
-
-                    // Initialization of the interface solver.
-                    SolverPtr kBBSolver = SolverFactory<SC, LO, GO, NO>::Build(kBBMod,
-                                                                               sublist(this->ParameterList_, "InterfaceSolver"),
-                                                                               string(""));
-                    kBBSolver->initialize();
-                    kBBSolver->compute();
+                    SolverPtr kBBSolver = this->initializeLocalInterfaceSolver(kBB, kBI);
 
                     // Convert kBV to a MultiVector so it can be used in
                     // kBBSolver->apply(...).
@@ -256,6 +230,42 @@ namespace FROSch {
         this->localK = ExtractLocalSubdomainMatrix(this->K_,
                                                    localMap.getConst(),
                                                    localSerialMap.getConst());
+    }
+
+    template <class SC, class LO, class GO, class NO>
+    RCP<Solver<SC, LO, GO, NO>> AlgebraicMsFEMInterfacePartitionOfUnity<SC, LO, GO, NO>::initializeLocalInterfaceSolver(const XMatrixPtr kII,
+                                                                                                                        const XMatrixPtr kIJ) {
+        RCP<basic_FancyOStream<char>> blackHoleStream = getFancyOStream(rcp(new oblackholestream()));
+
+        // kIJRowSum = kIJ * 1_I, 1_I = (1 ... 1)
+        // This is equivalent to adding the rows of kIJ.
+        XMultiVectorPtr kIJRowSum = MultiVectorFactory<SC, LO, GO, NO>::Build(kIJ->getRangeMap(), 1);
+        XMultiVectorPtr onesJ = MultiVectorFactory<SC, LO, GO, NO>::Build(kIJ->getDomainMap(), 1);
+        onesJ->putScalar(ScalarTraits<SC>::one());
+        kIJ->apply(*onesJ, *kIJRowSum);
+
+        // kIIMod = kII + diag(kIJRowSum)
+        XMatrixPtr diagKIJ = MatrixFactory<SC, LO, GO, NO>::Build(kIJRowSum->getVector(0));
+        XMatrixPtr kIIMod;
+        MatrixMatrix<SC, LO, GO, NO>::TwoMatrixAdd(*kII,
+                                                   false,
+                                                   ScalarTraits<SC>::one(),
+                                                   *diagKIJ,
+                                                   false,
+                                                   ScalarTraits<SC>::one(),
+                                                   kIIMod,
+                                                   *blackHoleStream,
+                                                   false);
+        kIIMod->fillComplete();
+
+        // Initialization of the interface solver.
+        SolverPtr kIISolver = SolverFactory<SC, LO, GO, NO>::Build(kIIMod,
+                                                                   sublist(this->ParameterList_, "InterfaceSolver"),
+                                                                   string(""));
+        kIISolver->initialize();
+        kIISolver->compute();
+
+        return kIISolver;
     }
 }
 

@@ -68,6 +68,10 @@ namespace FROSch {
         Array<GO> getEntitySetDofs(EntitySetConstPtr entitySet);
 
         void assembleLocalMatrix();
+
+        RCP<Solver<SC, LO, GO, NO>> initializeLocalInterfaceSolver(const XMatrixPtr kII,
+                                                                   const XMatrixPtr kIJ);
+
     };
 }
 
