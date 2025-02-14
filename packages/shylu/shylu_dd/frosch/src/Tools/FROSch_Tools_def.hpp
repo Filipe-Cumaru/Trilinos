@@ -1562,6 +1562,22 @@ namespace FROSch {
         return nullSpaceBasis;
     }
 
+    template <class SC, class LO, class GO, class NO>
+    RCP<MultiVector<SC, LO, GO, NO>> sumMatrixRows(const RCP<const Matrix<SC,LO,GO,NO>>& matrix,
+                                                   const Array<GO>& columns) {
+        RCP<MultiVector<SC, LO, GO, NO>> mask = MultiVectorFactory<SC, LO, GO, NO>::Build(matrix->getDomainMap(), 1);
+        if (columns.size() == 0) {
+            mask->putScalar(ScalarTraits<SC>::one());
+        } else {
+            for (auto it = columns.begin(); it != columns.end(); it++) {
+                mask->replaceGlobalValue(*it, 0, ScalarTraits<SC>::one());
+            }
+        }
+        RCP<MultiVector<SC, LO, GO, NO>> rowSum = MultiVectorFactory<SC, LO, GO, NO>::Build(matrix->getRangeMap(), 1);
+        matrix->apply(*mask, *rowSum);
+        return rowSum;
+    }
+
 #ifdef HAVE_SHYLU_DDFROSCH_EPETRA
     template <class SC,class LO,class GO,class NO>
     RCP<Map<LO,GO,NO> > ConvertToXpetra<SC,LO,GO,NO>::ConvertMap(UnderlyingLib lib,
