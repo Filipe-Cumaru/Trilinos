@@ -305,6 +305,23 @@ namespace FROSch {
                                                         unsigned dofsPerNode,
                                                         ArrayRCP<RCP<const Map<LO,GO,NO> > > dofsMaps,
                                                         RCP<const MultiVector<SC,LO,GO,NO> > nodeList = null);
+    
+    /*!
+        \brief Computes the sum of the entries of each row of a matrix.
+
+        Computes the sum of the entries of each row of the input matrix.
+        An optional set of global indices of columns can be passed to filter
+        which entries per row should be added. If no indices are provided,
+        all columns are considered.
+
+        \param[in ] matrix The matrix for which the rows will be added.
+        \param[in ] columns A set of global indices for columns to take into account in the sum.
+
+        \return A MultiVector containing the sum of each row.
+     */
+    template <class SC, class LO, class GO, class NO>
+    RCP<MultiVector<SC, LO, GO, NO>> sumMatrixRows(const RCP<const Matrix<SC,LO,GO,NO>>& matrix,
+                                                   const Array<GO>& columns = Array<GO>(0));
 
 #ifdef HAVE_SHYLU_DDFROSCH_EPETRA
     template <class SC,class LO,class GO,class NO>
