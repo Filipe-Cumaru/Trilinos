@@ -60,7 +60,10 @@ namespace FROSch {
 
     protected:
         ConstXMatrixPtr K_;
+        ConstXMatrixPtr overlappingK;
         ConstXMatrixPtr localK;
+        XMapPtr repeatedMap;
+        XMapPtr serialRepeatedMap;
         RCP<basic_FancyOStream<char>> blackHoleStream;
 
     private:
@@ -68,7 +71,9 @@ namespace FROSch {
 
         Array<GO> getEntitySetDofs(EntitySetConstPtr entitySet);
 
-        void assembleLocalMatrix();
+        void initializeOverlappingMatrices();
+
+        void initializeMaps();
 
         RCP<Solver<SC, LO, GO, NO>> initializeLocalInterfaceSolver(const XMatrixPtr kII,
                                                                    const XMatrixPtr kIJ);

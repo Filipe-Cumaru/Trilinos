@@ -36,6 +36,8 @@ namespace FROSch {
         this->LocalPartitionOfUnity_ = ConstXMultiVectorPtrVecPtr(1);
         this->PartitionOfUnityMaps_ = ConstXMapPtrVecPtr(1);
         this->blackHoleStream = getFancyOStream(rcp(new oblackholestream()));
+        this->initializeMaps();
+        this->initializeOverlappingMatrices();
     }
 
     template <class SC, class LO, class GO, class NO>
@@ -221,33 +223,44 @@ namespace FROSch {
     }
 
     template <class SC, class LO, class GO, class NO>
-    void AlgebraicMsFEMInterfacePartitionOfUnity<SC, LO, GO, NO>::assembleLocalMatrix() {
+    void AlgebraicMsFEMInterfacePartitionOfUnity<SC, LO, GO, NO>::initializeOverlappingMatrices() {
+        XMatrixPtr nonConstOverlappingK = MatrixFactory<SC, LO, GO, NO>::Build(this->repeatedMap,
+                                                                               2 * this->K_->getGlobalMaxNumRowEntries());
+        RCP<Import<LO, GO, NO>> scatter = ImportFactory<LO, GO, NO>::Build(this->K_->getRowMap(),
+                                                                           this->repeatedMap);
+        nonConstOverlappingK->doImport(*this->K_, *scatter, ADD);
+        nonConstOverlappingK->fillComplete();
+        this->overlappingK = nonConstOverlappingK.getConst();
+
+        this->localK = ExtractLocalSubdomainMatrix(this->K_,
+                                                   this->repeatedMap.getConst(),
+                                                   this->serialRepeatedMap.getConst());
+    }
+
+    template <class SC, class LO, class GO, class NO>
+    void AlgebraicMsFEMInterfacePartitionOfUnity<SC, LO, GO, NO>::initializeMaps() {
         EntitySetConstPtr interiorSet = this->DDInterface_->getInterior();
         EntitySetConstPtr interfaceSet = this->DDInterface_->getInterface();
 
         Array<GO> interiorDofs = this->getEntitySetDofs(interiorSet);
         Array<GO> interfaceDofs = this->getEntitySetDofs(interfaceSet);
-
         Array<GO> allDofs = Array<GO>(interiorDofs);
-        for (UN i = 0; i < interfaceDofs.size(); i++) {
-            allDofs.push_back(interfaceDofs[i]);
-        }
+        allDofs.insert(allDofs.end(),
+                       interfaceDofs.begin(),
+                       interfaceDofs.end());
         std::sort(allDofs.begin(), allDofs.end());
 
-        XMapPtr localMap = MapFactory<LO, GO, NO>::Build(this->K_->getRowMap()->lib(),
+        this->repeatedMap = MapFactory<LO, GO, NO>::Build(this->K_->getRowMap()->lib(),
                                                          Teuchos::OrdinalTraits<GO>::invalid(),
                                                          allDofs(),
                                                          0,
                                                          this->MpiComm_);
-        XMapPtr localSerialMap = MapFactory<LO, GO, NO>::Build(this->K_->getRowMap()->lib(),
+        this->serialRepeatedMap = MapFactory<LO, GO, NO>::Build(this->K_->getRowMap()->lib(),
                                                                Teuchos::OrdinalTraits<GO>::invalid(),
                                                                allDofs(),
                                                                0,
                                                                this->SerialComm_);
-
-        this->localK = ExtractLocalSubdomainMatrix(this->K_,
-                                                   localMap.getConst(),
-                                                   localSerialMap.getConst());
+    }
     }
 
     template <class SC, class LO, class GO, class NO>
