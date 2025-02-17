@@ -35,7 +35,7 @@ namespace FROSch {
         this->UseFaces_ = false;
         this->LocalPartitionOfUnity_ = ConstXMultiVectorPtrVecPtr(1);
         this->PartitionOfUnityMaps_ = ConstXMapPtrVecPtr(1);
-        this->assembleLocalMatrix();
+        this->blackHoleStream = getFancyOStream(rcp(new oblackholestream()));
     }
 
     template <class SC, class LO, class GO, class NO>
@@ -74,7 +74,7 @@ namespace FROSch {
         XMultiVectorPtr ipouVector = MultiVectorFactory<SC, LO, GO, NO>::Build(serialInterfaceMap,
                                                                                allRoots->getNumEntities());
 
-        RCP<basic_FancyOStream<char>> blackHoleStream = getFancyOStream(rcp(new oblackholestream()));
+
         for (UN i = 0; i < entitySetVector.size(); i++) {
             for (UN j = 0; j < entitySetVector[i]->getNumEntities(); j++) {
                 InterfaceEntityPtr currEntity = entitySetVector[i]->getEntity(j);
