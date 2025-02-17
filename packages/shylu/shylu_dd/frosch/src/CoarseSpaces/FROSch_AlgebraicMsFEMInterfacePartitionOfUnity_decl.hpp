@@ -61,6 +61,7 @@ namespace FROSch {
     protected:
         ConstXMatrixPtr K_;
         ConstXMatrixPtr localK;
+        RCP<basic_FancyOStream<char>> blackHoleStream;
 
     private:
         Array<GO> getEntityDofs(InterfaceEntityPtr entity);
