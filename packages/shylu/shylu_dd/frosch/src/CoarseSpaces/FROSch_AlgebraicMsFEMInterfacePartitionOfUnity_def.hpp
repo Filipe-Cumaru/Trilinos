@@ -215,9 +215,9 @@ namespace FROSch {
         for (UN i = 0; i < entitySet->getNumEntities(); i++) {
             InterfaceEntityPtr tmpEntity = entitySet->getEntity(i);
             Array<GO> entityDofs = this->getEntityDofs(tmpEntity);
-            for (UN j = 0; j < entityDofs.size(); j++) {
-                entitySetDofs.append(entityDofs[j]);
-            }
+            entitySetDofs.insert(entitySetDofs.end(),
+                                 entityDofs.begin(),
+                                 entityDofs.end());
         }
         return entitySetDofs;
     }
