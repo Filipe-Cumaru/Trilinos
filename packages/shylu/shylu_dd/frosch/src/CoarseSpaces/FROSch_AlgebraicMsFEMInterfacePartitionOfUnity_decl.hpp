@@ -62,8 +62,16 @@ namespace FROSch {
         ConstXMatrixPtr K_;
         ConstXMatrixPtr overlappingK;
         ConstXMatrixPtr localK;
+
         XMapPtr repeatedMap;
         XMapPtr serialRepeatedMap;
+
+        Array<GO> interiorDofs;
+        Array<GO> interfaceDofs;
+        Array<GO> rootDofs;
+        Array<GO> leafDofs;
+        Array<GO> reducedInterfaceDofs;
+
         RCP<basic_FancyOStream<char>> blackHoleStream;
 
     private:
@@ -74,6 +82,8 @@ namespace FROSch {
         void initializeOverlappingMatrices();
 
         void initializeMaps();
+
+        void initializeDofsArrays();
 
         RCP<const Matrix<SC,LO,GO,NO>> assembleDiagSumMatrix(const Array<GO>& colIndices) const;
 
