@@ -75,6 +75,8 @@ namespace FROSch {
 
         void initializeMaps();
 
+        RCP<const Matrix<SC,LO,GO,NO>> assembleDiagSumMatrix(const Array<GO>& colIndices) const;
+
         RCP<Solver<SC, LO, GO, NO>> initializeLocalInterfaceSolver(const XMatrixPtr kII,
                                                                    const XMatrixPtr kIJ);
 
