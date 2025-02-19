@@ -1578,6 +1578,21 @@ namespace FROSch {
         return rowSum;
     }
 
+    template <class SC, class LO, class GO, class NO>
+    RCP<MultiVector<SC, LO, GO, NO>> matrixToMultiVector(const RCP<Matrix<SC, LO, GO, NO>> matrix) {
+        RCP<MultiVector<SC, LO, GO, NO>> mv = MultiVectorFactory<SC, LO, GO, NO>::Build(matrix->getRowMap(),
+                                                                                        matrix->getGlobalNumCols());
+        ArrayView<const LO> localColIdx;
+        ArrayView<const SC> localVals;
+        for (unsigned i = 0; i < matrix->getLocalNumRows(); i++) {
+            matrix->getLocalRowView(i, localColIdx, localVals);
+            for (unsigned j = 0; j < localColIdx.size(); j++) {
+                mv->replaceLocalValue(i, localColIdx[j], localVals[j]);
+            }
+        }
+        return mv;
+    }
+
 #ifdef HAVE_SHYLU_DDFROSCH_EPETRA
     template <class SC,class LO,class GO,class NO>
     RCP<Map<LO,GO,NO> > ConvertToXpetra<SC,LO,GO,NO>::ConvertMap(UnderlyingLib lib,

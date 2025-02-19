@@ -322,6 +322,17 @@ namespace FROSch {
     template <class SC, class LO, class GO, class NO>
     RCP<MultiVector<SC, LO, GO, NO>> sumMatrixRows(const RCP<const Matrix<SC,LO,GO,NO>>& matrix,
                                                    const Array<GO>& columns = Array<GO>(0));
+    
+    /*!
+        \brief Converts a Xpetra Matrix to a MultiVector.
+
+        \param[in ] matrix The matrix to be converted to a MultiVector.
+
+        \return A MultiVector with the same shape and containing the same
+        entries as the input matrix.
+     */
+    template <class SC, class LO, class GO, class NO>
+    RCP<MultiVector<SC, LO, GO, NO>> matrixToMultiVector(const RCP<Matrix<SC, LO, GO, NO>> matrix);
 
 #ifdef HAVE_SHYLU_DDFROSCH_EPETRA
     template <class SC,class LO,class GO,class NO>
