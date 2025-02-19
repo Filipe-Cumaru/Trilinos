@@ -67,9 +67,9 @@ namespace FROSch {
         RCP<basic_FancyOStream<char>> blackHoleStream;
 
     private:
-        Array<GO> getEntityDofs(InterfaceEntityPtr entity);
+        Array<GO> getEntityDofs(InterfaceEntityPtr entity) const;
 
-        Array<GO> getEntitySetDofs(EntitySetConstPtr entitySet);
+        Array<GO> getEntitySetDofs(EntitySetConstPtr entitySet) const;
 
         void initializeOverlappingMatrices();
 
