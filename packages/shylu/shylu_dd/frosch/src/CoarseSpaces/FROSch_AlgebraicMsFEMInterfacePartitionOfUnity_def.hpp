@@ -261,6 +261,16 @@ namespace FROSch {
                                                                0,
                                                                this->SerialComm_);
     }
+
+    template <class SC, class LO, class GO, class NO>
+    RCP<const Matrix<SC,LO,GO,NO>> AlgebraicMsFEMInterfacePartitionOfUnity<SC, LO, GO, NO>::assembleDiagSumMatrix(const Array<GO>& colIndices) const {
+        XMultiVectorPtr rowSum = sumMatrixRows<SC, LO, GO, NO>(this->overlappingK,
+                                                               colIndices);
+        XMatrixPtr diagRowSum = MatrixFactory<SC, LO, GO, NO>::Build(rowSum->getVector(0));
+        ConstXMatrixPtr serialDiagRowSum = ExtractLocalSubdomainMatrix(diagRowSum.getConst(),
+                                                                       this->repeatedMap.getConst(),
+                                                                       this->serialRepeatedMap.getConst());
+        return serialDiagRowSum;
     }
 
     template <class SC, class LO, class GO, class NO>
