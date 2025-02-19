@@ -198,7 +198,7 @@ namespace FROSch {
     }
 
     template <class SC, class LO, class GO, class NO>
-    Array<GO> AlgebraicMsFEMInterfacePartitionOfUnity<SC, LO, GO, NO>::getEntityDofs(InterfaceEntityPtr entity) {
+    Array<GO> AlgebraicMsFEMInterfacePartitionOfUnity<SC, LO, GO, NO>::getEntityDofs(InterfaceEntityPtr entity) const {
         UN dofsPerNode = this->DDInterface_->getInterface()->getEntity(0)->getDofsPerNode();
         Array<GO> entityDofs;
         for (UN i = 0; i < entity->getNumNodes(); i++) {
@@ -210,7 +210,7 @@ namespace FROSch {
     }
 
     template <class SC, class LO, class GO, class NO>
-    Array<GO> AlgebraicMsFEMInterfacePartitionOfUnity<SC, LO, GO, NO>::getEntitySetDofs(EntitySetConstPtr entitySet) {
+    Array<GO> AlgebraicMsFEMInterfacePartitionOfUnity<SC, LO, GO, NO>::getEntitySetDofs(EntitySetConstPtr entitySet) const {
         Array<GO> entitySetDofs;
         for (UN i = 0; i < entitySet->getNumEntities(); i++) {
             InterfaceEntityPtr tmpEntity = entitySet->getEntity(i);
