@@ -36,6 +36,17 @@ namespace FROSch {
         this->LocalPartitionOfUnity_ = ConstXMultiVectorPtrVecPtr(1);
         this->PartitionOfUnityMaps_ = ConstXMapPtrVecPtr(1);
         this->blackHoleStream = getFancyOStream(rcp(new oblackholestream()));
+
+        this->DDInterface_->buildEntityHierarchy();
+        this->DDInterface_->buildEntityMaps(false,  // vertices
+                                            false,  // short edges
+                                            false,  // straight edges
+                                            false,  // edges
+                                            false,  // faces
+                                            true,   // roots
+                                            false); // leaves
+
+        this->initializeDofsArrays();
         this->initializeMaps();
         this->initializeOverlappingMatrices();
     }
@@ -47,16 +58,6 @@ namespace FROSch {
 
         UN dofsPerNode = this->DDInterface_->getInterface()->getEntity(0)->getDofsPerNode();
         UN numInterfaceDofs = dofsPerNode * this->DDInterface_->getInterface()->getEntity(0)->getNumNodes();
-
-        // Initialization of the interface data structures.
-        this->DDInterface_->buildEntityHierarchy();
-        this->DDInterface_->buildEntityMaps(false,  // vertices
-                                            false,  // short edges
-                                            false,  // straight edges
-                                            false,  // edges
-                                            false,  // faces
-                                            true,   // roots
-                                            false); // leaves
 
         EntitySetPtrVecPtr entitySetVector = this->DDInterface_->getEntitySetVector();
 
@@ -238,18 +239,44 @@ namespace FROSch {
     }
 
     template <class SC, class LO, class GO, class NO>
-    void AlgebraicMsFEMInterfacePartitionOfUnity<SC, LO, GO, NO>::initializeMaps() {
+    void AlgebraicMsFEMInterfacePartitionOfUnity<SC, LO, GO, NO>::initializeDofsArrays() {
+        // Retrieve all root entities owned by the process.
+        EntitySetPtr rootsSet = this->DDInterface_->getRoots();
+        this->rootDofs = this->getEntitySetDofs(rootsSet);
+        std::sort(this->rootDofs.begin(), this->rootDofs.end());
+
+        // Leaf entities and dofs.
+        EntitySetConstPtr leavesSet = this->DDInterface_->getLeafs();
+        this->leafDofs = this->getEntitySetDofs(leavesSet);
+        std::sort(this->leafDofs.begin(), this->leafDofs.end());
+
+        // Interior entities and their dofs.
         EntitySetConstPtr interiorSet = this->DDInterface_->getInterior();
+        this->interiorDofs = this->getEntitySetDofs(interiorSet);
+
+        // All interface entities owned by the process.
         EntitySetConstPtr interfaceSet = this->DDInterface_->getInterface();
+        this->interfaceDofs = this->getEntitySetDofs(interfaceSet);
 
-        Array<GO> interiorDofs = this->getEntitySetDofs(interiorSet);
-        Array<GO> interfaceDofs = this->getEntitySetDofs(interfaceSet);
-        Array<GO> allDofs = Array<GO>(interiorDofs);
-        allDofs.insert(allDofs.end(),
-                       interfaceDofs.begin(),
-                       interfaceDofs.end());
-        std::sort(allDofs.begin(), allDofs.end());
+        // The reduced interface, i.e., all interface entities that are
+        // neither leaves nor roots.
+        UN numNotLeafOrRootDofs =  this->interfaceDofs.size() - this->rootDofs.size() - this->leafDofs.size();
+        this->reducedInterfaceDofs = Array<GO>(numNotLeafOrRootDofs);
+        Array<GO> leavesAndRootsDofs = Array<GO>(this->rootDofs.size() + this->leafDofs.size());
+        std::set_union(this->rootDofs.begin(), this->rootDofs.end(),
+                       this->leafDofs.begin(), this->leafDofs.end(),
+                       leavesAndRootsDofs.begin());
+        std::set_difference(this->interfaceDofs.begin(), this->interfaceDofs.end(),
+                            leavesAndRootsDofs.begin(), leavesAndRootsDofs.end(),
+                            this->reducedInterfaceDofs.begin());
+    }
 
+    template <class SC, class LO, class GO, class NO>
+    void AlgebraicMsFEMInterfacePartitionOfUnity<SC, LO, GO, NO>::initializeMaps() {
+        Array<GO> allDofs = Array<GO>(this->interiorDofs.size() + this->interfaceDofs.size());
+        std::set_union(this->interiorDofs.begin(), this->interiorDofs.end(),
+                       this->interfaceDofs.begin(), this->interfaceDofs.end(),
+                       allDofs.begin());
         this->repeatedMap = MapFactory<LO, GO, NO>::Build(this->K_->getRowMap()->lib(),
                                                          Teuchos::OrdinalTraits<GO>::invalid(),
                                                          allDofs(),
