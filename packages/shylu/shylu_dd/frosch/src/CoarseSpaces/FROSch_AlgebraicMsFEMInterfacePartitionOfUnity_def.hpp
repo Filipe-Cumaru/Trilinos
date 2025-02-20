@@ -49,6 +49,9 @@ namespace FROSch {
         this->initializeDofsArrays();
         this->initializeMaps();
         this->initializeOverlappingMatrices();
+
+        this->diagInteriorRowSum = this->assembleDiagSumMatrix(this->interiorDofs);
+        this->diagLeavesRowSum = this->assembleDiagSumMatrix(this->leafDofs);
     }
 
     template <class SC, class LO, class GO, class NO>
@@ -58,16 +61,10 @@ namespace FROSch {
 
         UN dofsPerNode = this->DDInterface_->getInterface()->getEntity(0)->getDofsPerNode();
         UN numInterfaceDofs = dofsPerNode * this->DDInterface_->getInterface()->getEntity(0)->getNumNodes();
+        UN numInterfaceNotRootNotLeafDofs = numInterfaceDofs - this->rootDofs.size() - this->leafDofs.size();
 
         EntitySetPtrVecPtr entitySetVector = this->DDInterface_->getEntitySetVector();
-
-        // Retrieve all root entities owned by the process.
-        EntitySetPtr allRoots = this->DDInterface_->getRoots();
-        this->PartitionOfUnityMaps_[0] = allRoots->getEntityMap();
-
-        // Interior entities and their dofs.
-        EntitySetConstPtr interiorSet = this->DDInterface_->getInterior();
-        Array<GO> interiorDofs = this->getEntitySetDofs(interiorSet);
+        this->PartitionOfUnityMaps_[0] = this->DDInterface_->getRoots()->getEntityMap();
 
         // Initialization of a vector to store the IPOU values.
         XMapPtr serialInterfaceMap = MapFactory<LO, GO, NO>::Build(this->DDInterface_->getNodesMap()->lib(),
@@ -75,8 +72,7 @@ namespace FROSch {
                                                                    0,
                                                                    this->SerialComm_);
         XMultiVectorPtr ipouVector = MultiVectorFactory<SC, LO, GO, NO>::Build(serialInterfaceMap,
-                                                                               allRoots->getNumEntities());
-
+                                                                               this->DDInterface_->getRoots()->getNumEntities());
 
         for (UN i = 0; i < entitySetVector.size(); i++) {
             for (UN j = 0; j < entitySetVector[i]->getNumEntities(); j++) {
@@ -90,51 +86,56 @@ namespace FROSch {
                     UN numRoots = currEntity->getRoots()->getNumEntities();
                     FROSCH_ASSERT(numRoots != 0, "rootID==-1 but numRoots==0!");
 
-                    EntitySetPtr roots = currEntity->getRoots();
-                    Array<GO> rootsDofs = this->getEntitySetDofs(roots);
+                    EntitySetPtr currEntityRoots = currEntity->getRoots();
+                    Array<GO> currEntityRootsDofs = this->getEntitySetDofs(currEntityRoots);
                     Array<GO> currEntityDofs = this->getEntityDofs(currEntity);
                     Array<GO> offspringDofs = this->getEntitySetDofs(currEntity->getOffspring());
                     Array<GO> otherDofs(offspringDofs);
-                    otherDofs.insert(otherDofs.end(), interiorDofs.begin(), interiorDofs.end());
+                    otherDofs.insert(otherDofs.end(),
+                                     this->interiorDofs.begin(),
+                                     this->interiorDofs.end());
 
                     // Exract the submatrices required to assemble the IPOU.
                     // These are equivalent to the blocks in the wirebasket order:
                     //           (kII kIB kIV)
                     // W^T K W = (kBI kBB kBV)
                     //           (kVI kVB kVV)
-                    XMatrixPtr kBI;
                     XMatrixPtr kBB;
                     XMatrixPtr kBV;
+                    XMatrixPtr diagInteriorRowSumBlock;
                     BuildSubmatrix(this->localK, currEntityDofs(), kBB);
+                    BuildSubmatrix(this->diagInteriorRowSum,
+                                   currEntityDofs(),
+                                   diagInteriorRowSumBlock);
                     BuildSubmatrix(this->localK,
                                    currEntityDofs(),
-                                   rootsDofs(),
+                                   currEntityRootsDofs(),
                                    kBV);
-                    BuildSubmatrix(this->localK,
-                                   currEntityDofs(),
-                                   otherDofs(),
-                                   kBI);
 
-                    SolverPtr kBBSolver = this->initializeLocalInterfaceSolver(kBB, kBI);
+                    SolverPtr kBBSolver;
+                    if (numInterfaceNotRootNotLeafDofs != 0 && offspringDofs.size() != 0) {
+                        XMatrixPtr diagLeavesRowSumBlock;
+                        BuildSubmatrix(this->diagLeavesRowSum,
+                                       currEntityDofs(),
+                                       diagLeavesRowSumBlock);
+                        kBBSolver = this->initializeLocalInterfaceSolver(kBB,
+                                                                         diagInteriorRowSumBlock,
+                                                                         diagLeavesRowSumBlock);
+                    } else {
+                        kBBSolver = this->initializeLocalInterfaceSolver(kBB,
+                                                                         diagInteriorRowSumBlock);
+                    }
 
                     // Convert kBV to a MultiVector so it can be used in
                     // kBBSolver->apply(...).
-                    XMultiVectorPtr mVkBV = MultiVectorFactory<SC, LO, GO, NO>::Build(kBB->getDomainMap(),
-                                                                                      rootsDofs.size());
-                    ArrayView<const LO> localColIdx;
-                    ArrayView<const SC> localVals;
-                    for (UN k = 0; k < kBV->getLocalNumRows(); k++) {
-                        kBV->getLocalRowView(k, localColIdx, localVals);
-                        for (UN l = 0; l < localColIdx.size(); l++) {
-                            mVkBV->replaceLocalValue(k, localColIdx[l], localVals[l]);
-                        }
-                    }
+                    XMultiVectorPtr mVkBV = matrixToMultiVector<SC, LO, GO, NO>(kBV);
 
                     // Compute the solution on the interface.
                     XMultiVectorPtr mVPhiBV = MultiVectorFactory<SC, LO, GO, NO>::Build(kBB->getDomainMap(),
-                                                                                        rootsDofs.size());
-                    for (UN k = 0; k < rootsDofs.size(); k++) {
-                        kBBSolver->apply(*mVkBV->getVector(k), *mVPhiBV->getVectorNonConst(k));
+                                                                                        currEntityRootsDofs.size());
+                    for (UN k = 0; k < currEntityRootsDofs.size(); k++) {
+                        kBBSolver->apply(*mVkBV->getVector(k),
+                                         *mVPhiBV->getVectorNonConst(k));
                     }
 
                     // If the interface entity is a leaf (no offspring), then
@@ -143,13 +144,12 @@ namespace FROSch {
                     // It can be interpreted as an extension of the BFs values
                     // on the ancestors nodes, e.g. edges to faces in a 3-D
                     // structured domain decomposition.
-                    if (offspringDofs.size() == 0) {
-                        this->addAncestorExtensionTerm(currEntity,
-                                                       currEntityDofs,
-                                                       rootsDofs,
-                                                       interiorDofs,
-                                                       kBBSolver,
-                                                       mVPhiBV);
+                    if (numInterfaceNotRootNotLeafDofs != 0 && offspringDofs.size() == 0) {
+                        this->addAncestorTerm(currEntity,
+                                              currEntityDofs,
+                                              currEntityRootsDofs,
+                                              kBBSolver,
+                                              mVPhiBV);
                     }
 
                     // Add up the interface values to get a POU. This is done by multiplying
@@ -167,7 +167,7 @@ namespace FROSch {
 
                     // Set the entries on the IPOU vector.
                     for (UN k = 0; k < numRoots; k++) {
-                        LO rootIdx = roots->getEntity(k)->getRootID();
+                        LO rootIdx = currEntityRoots->getEntity(k)->getRootID();
                         ArrayRCP<const SC> mVPhiBVk = mVPhiBV->getData(k);
                         UN n = 0;
                         for (UN l = 0; l < currEntity->getNumNodes(); l++) {
@@ -290,29 +290,34 @@ namespace FROSch {
 
     template <class SC, class LO, class GO, class NO>
     RCP<Solver<SC, LO, GO, NO>> AlgebraicMsFEMInterfacePartitionOfUnity<SC, LO, GO, NO>::initializeLocalInterfaceSolver(const XMatrixPtr kII,
-                                                                                                                        const XMatrixPtr kIJ) {
-        RCP<basic_FancyOStream<char>> blackHoleStream = getFancyOStream(rcp(new oblackholestream()));
-
-        // kIJRowSum = kIJ * 1_I, 1_I = (1 ... 1)
-        // This is equivalent to adding the rows of kIJ.
-        XMultiVectorPtr kIJRowSum = MultiVectorFactory<SC, LO, GO, NO>::Build(kIJ->getRangeMap(), 1);
-        XMultiVectorPtr onesJ = MultiVectorFactory<SC, LO, GO, NO>::Build(kIJ->getDomainMap(), 1);
-        onesJ->putScalar(ScalarTraits<SC>::one());
-        kIJ->apply(*onesJ, *kIJRowSum);
-
-        // kIIMod = kII + diag(kIJRowSum)
-        XMatrixPtr diagKIJ = MatrixFactory<SC, LO, GO, NO>::Build(kIJRowSum->getVector(0));
+                                                                                                                        const XMatrixPtr diagSumInterior,
+                                                                                                                        const XMatrixPtr diagSumExtra) const {
         XMatrixPtr kIIMod;
         MatrixMatrix<SC, LO, GO, NO>::TwoMatrixAdd(*kII,
                                                    false,
                                                    ScalarTraits<SC>::one(),
-                                                   *diagKIJ,
+                                                   *diagSumInterior,
                                                    false,
                                                    ScalarTraits<SC>::one(),
                                                    kIIMod,
-                                                   *blackHoleStream,
+                                                   *this->blackHoleStream,
                                                    false);
         kIIMod->fillComplete();
+
+        if (!diagSumExtra.is_null()) {
+            XMatrixPtr kIIModExtra;
+            MatrixMatrix<SC, LO, GO, NO>::TwoMatrixAdd(*diagSumExtra,
+                                                       false,
+                                                       ScalarTraits<SC>::one(),
+                                                       *kIIMod,
+                                                       false,
+                                                       ScalarTraits<SC>::one(),
+                                                       kIIModExtra,
+                                                       *this->blackHoleStream,
+                                                       false);
+            kIIModExtra->fillComplete();
+            kIIMod = kIIModExtra;
+        }
 
         // Initialization of the interface solver.
         SolverPtr kIISolver = SolverFactory<SC, LO, GO, NO>::Build(kIIMod,
@@ -325,83 +330,72 @@ namespace FROSch {
     }
 
     template <class SC, class LO, class GO, class NO>
-    void AlgebraicMsFEMInterfacePartitionOfUnity<SC, LO, GO, NO>::addAncestorExtensionTerm(InterfaceEntityPtr entity,
-                                                                                           Array<GO>& entityDofs,
-                                                                                           Array<GO>& rootsDofs,
-                                                                                           Array<GO>& interiorDofs,
-                                                                                           RCP<Solver<SC, LO, GO, NO>> kBBSolver,
-                                                                                           XMultiVectorPtr mVPhiBV) {
-        // Retrieve the dofs of the ancestors of entity.
-        EntitySetPtr entityAncestors = entity->getAncestors();
-        Array<GO> ancestorsDofs = this->getEntitySetDofs(entityAncestors);
-
-        // Remove the roots' dofs from the ancestors of entity.
-        Array<GO> ancestorsDofsNoRoots(ancestorsDofs.size() - rootsDofs.size());
-        std::sort(ancestorsDofs.begin(), ancestorsDofs.end());
-        std::set_difference(ancestorsDofs.begin(),
-                            ancestorsDofs.end(),
-                            rootsDofs.begin(),
-                            rootsDofs.end(),
-                            ancestorsDofsNoRoots.begin());
-
-        Array<GO> remainingDofs(interiorDofs);
-        remainingDofs.insert(remainingDofs.end(),
-                             entityDofs.begin(),
-                             entityDofs.end());
+    void AlgebraicMsFEMInterfacePartitionOfUnity<SC, LO, GO, NO>::addAncestorTerm(const InterfaceEntityPtr entity,
+                                                                                  Array<GO> entityDofs,
+                                                                                  Array<GO> entityRootsDofs,
+                                                                                  const SolverPtr kBBSolver,
+                                                                                  XMultiVectorPtr mVPhiBV) const {
+        EntitySetPtr ancestors = entity->getAncestors();
+        Array<GO> ancestorDofs = this->getEntitySetDofs(ancestors);
+        Array<GO> ancestorDofsNoRoots(ancestorDofs.size() - entityRootsDofs.size());
+        std::set_difference(ancestorDofs.begin(),
+                            ancestorDofs.end(),
+                            entityRootsDofs.begin(),
+                            entityRootsDofs.end(),
+                            ancestorDofsNoRoots.begin());
         
-        // Assemble the local submatrices.
-        // A := ancestors of the entity without the roots
-        // R := remaining (entity U interior - ancestors - roots)
-        XMatrixPtr kAA, kAR, kAV, kBA;
-        BuildSubmatrix(this->localK, ancestorsDofsNoRoots(), kAA);
-        BuildSubmatrix(this->localK,
-                       ancestorsDofsNoRoots(),
-                       rootsDofs(),
-                       kAV);
-        BuildSubmatrix(this->localK,
-                       ancestorsDofsNoRoots(),
-                       remainingDofs(),
-                       kAR);
+        XMatrixPtr kAA;
+        XMatrixPtr kBA;
+        XMatrixPtr kAV;
+        BuildSubmatrix(this->localK, ancestorDofsNoRoots(), kAA);
         BuildSubmatrix(this->localK,
                        entityDofs(),
-                       ancestorsDofsNoRoots(),
+                       ancestorDofsNoRoots(),
                        kBA);
+        BuildSubmatrix(this->localK,
+                       ancestorDofsNoRoots(),
+                       entityRootsDofs(),
+                       kAV);
         
-        SolverPtr kAASolver = this->initializeLocalInterfaceSolver(kAA, kAR);
+        XMatrixPtr diagInteriorRowSumAncestorBlock;
+        XMatrixPtr diagLeavesRowSumAncestorBlock;
+        BuildSubmatrix(this->diagInteriorRowSum,
+                       ancestorDofsNoRoots(),
+                       diagInteriorRowSumAncestorBlock);
+        BuildSubmatrix(this->diagLeavesRowSum,
+                       ancestorDofsNoRoots(),
+                       diagLeavesRowSumAncestorBlock);
 
-        // Convert kAV to a MultiVector so it can be used in kAASolver->apply.
-        XMultiVectorPtr mVkAV = MultiVectorFactory<SC, LO, GO, NO>::Build(kAA->getDomainMap(),
-                                                                          rootsDofs.size());
-        ArrayView<const LO> localColIdx;
-        ArrayView<const SC> localVals;
-        for (UN k = 0; k < kAV->getLocalNumRows(); k++) {
-            kAV->getLocalRowView(k, localColIdx, localVals);
-            for (UN l = 0; l < localColIdx.size(); l++) {
-                mVkAV->replaceLocalValue(k, localColIdx[l], localVals[l]);
-            }
-        }
+        SolverPtr kAASolver = this->initializeLocalInterfaceSolver(kAA,
+                                                                   diagInteriorRowSumAncestorBlock,
+                                                                   diagLeavesRowSumAncestorBlock);
+        
+        XMultiVectorPtr mVkAV = matrixToMultiVector<SC, LO, GO, NO>(kAV);
 
-        // mVPhiAV = kAA^-1 * kAV
         XMultiVectorPtr mVPhiAV = MultiVectorFactory<SC, LO, GO, NO>::Build(kAA->getDomainMap(),
-                                                                            rootsDofs.size());
-        for (UN k = 0; k < rootsDofs.size(); k++) {
-            kAASolver->apply(*mVkAV->getVector(k), *mVPhiAV->getVectorNonConst(k));
+                                                                            entityRootsDofs.size());
+        for (UN k = 0; k < entityRootsDofs.size(); k++) {
+            kAASolver->apply(*mVkAV->getVector(k),
+                             *mVPhiAV->getVectorNonConst(k));
         }
 
-        // mVPhiBVTmp = kBA * mVPhiAV
         XMultiVectorPtr mVPhiBVTmp = MultiVectorFactory<SC, LO, GO, NO>::Build(kBBSolver->getDomainMap(),
-                                                                               rootsDofs.size());
-        kBA->apply(*mVPhiAV, *mVPhiBVTmp);
-
-        // mVPhiBVCorr = kBB^-1 * mVPhiBVTmp
-        XMultiVectorPtr mVPhiBVCorr = MultiVectorFactory<SC, LO, GO, NO>::Build(kBBSolver->getDomainMap(),
-                                                                                rootsDofs.size());
-        for (UN k = 0; k < rootsDofs.size(); k++) {
-            kBBSolver->apply(*mVPhiBVTmp->getVector(k), *mVPhiBVCorr->getVectorNonConst(k));
+                                                                               entityRootsDofs.size());
+        for (UN k = 0; k < entityRootsDofs.size(); k++) {
+            kBA->apply(*mVPhiAV->getVector(k),
+                       *mVPhiBVTmp->getVectorNonConst(k));
         }
 
-        // mVPhiBV += mVPhiBVCorr
-        mVPhiBV->update(ScalarTraits<SC>::one(), *mVPhiBVCorr, ScalarTraits<SC>::one());
+        XMultiVectorPtr mVPhiBVCorr = MultiVectorFactory<SC, LO, GO, NO>::Build(kBBSolver->getDomainMap(),
+                                                                                entityRootsDofs.size());
+        for (UN k = 0; k < entityRootsDofs.size(); k++) {
+            kBBSolver->apply(*mVPhiBVTmp->getVector(k),
+                             *mVPhiBVCorr->getVectorNonConst(k));
+        }
+
+        mVPhiBV->update(-ScalarTraits<SC>::one(),
+                        *mVPhiBVCorr,
+                        ScalarTraits<SC>::one());
     }
 }
 

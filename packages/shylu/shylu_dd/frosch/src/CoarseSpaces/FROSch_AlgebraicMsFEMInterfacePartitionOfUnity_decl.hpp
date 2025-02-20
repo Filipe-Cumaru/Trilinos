@@ -63,6 +63,9 @@ namespace FROSch {
         ConstXMatrixPtr overlappingK;
         ConstXMatrixPtr localK;
 
+        ConstXMatrixPtr diagInteriorRowSum;
+        ConstXMatrixPtr diagLeavesRowSum;
+
         XMapPtr repeatedMap;
         XMapPtr serialRepeatedMap;
 
@@ -87,14 +90,14 @@ namespace FROSch {
         RCP<const Matrix<SC,LO,GO,NO>> assembleDiagSumMatrix(const Array<GO>& colIndices) const;
 
         RCP<Solver<SC, LO, GO, NO>> initializeLocalInterfaceSolver(const XMatrixPtr kII,
-                                                                   const XMatrixPtr kIJ);
-
-        void addAncestorExtensionTerm(InterfaceEntityPtr entity,
-                                      Array<GO>& entityDofs,
-                                      Array<GO>& rootsDofs,
-                                      Array<GO>& interiorDofs,
-                                      RCP<Solver<SC, LO, GO, NO>> kBBSolver,
-                                      XMultiVectorPtr mVPhiBV);
+                                                                   const XMatrixPtr diagSumInterior,
+                                                                   const XMatrixPtr diagSumExtra = null) const;
+        
+        void addAncestorTerm(const InterfaceEntityPtr entity,
+                             Array<GO> entityDofs,
+                             Array<GO> entityRootsDofs,
+                             const SolverPtr kBBSolver,
+                             XMultiVectorPtr mVPhiBV) const;
     };
 }
 
