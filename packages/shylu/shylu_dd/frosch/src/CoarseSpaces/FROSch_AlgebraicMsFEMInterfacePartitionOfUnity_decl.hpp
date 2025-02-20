@@ -70,7 +70,6 @@ namespace FROSch {
         Array<GO> interfaceDofs;
         Array<GO> rootDofs;
         Array<GO> leafDofs;
-        Array<GO> reducedInterfaceDofs;
 
         RCP<basic_FancyOStream<char>> blackHoleStream;
 
