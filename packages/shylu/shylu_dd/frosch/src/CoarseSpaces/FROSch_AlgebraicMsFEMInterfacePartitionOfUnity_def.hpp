@@ -37,6 +37,7 @@ namespace FROSch {
         this->PartitionOfUnityMaps_ = ConstXMapPtrVecPtr(1);
         this->blackHoleStream = getFancyOStream(rcp(new oblackholestream()));
 
+        // Initialization of the interface entities.
         this->DDInterface_->buildEntityHierarchy();
         this->DDInterface_->buildEntityMaps(false,  // vertices
                                             false,  // short edges
@@ -86,6 +87,7 @@ namespace FROSch {
                     UN numRoots = currEntity->getRoots()->getNumEntities();
                     FROSCH_ASSERT(numRoots != 0, "rootID==-1 but numRoots==0!");
 
+                    // Retrive the dofs of the current entity and its offspring.
                     EntitySetPtr currEntityRoots = currEntity->getRoots();
                     Array<GO> currEntityRootsDofs = this->getEntitySetDofs(currEntityRoots);
                     Array<GO> currEntityDofs = this->getEntityDofs(currEntity);
@@ -102,16 +104,24 @@ namespace FROSch {
                     //           (kVI kVB kVV)
                     XMatrixPtr kBB;
                     XMatrixPtr kBV;
-                    XMatrixPtr diagInteriorRowSumBlock;
                     BuildSubmatrix(this->localK, currEntityDofs(), kBB);
-                    BuildSubmatrix(this->diagInteriorRowSum,
-                                   currEntityDofs(),
-                                   diagInteriorRowSumBlock);
                     BuildSubmatrix(this->localK,
                                    currEntityDofs(),
                                    currEntityRootsDofs(),
                                    kBV);
+                    
+                    // Extract the block in diagInteriorRowSum related to the
+                    // current entity.
+                    XMatrixPtr diagInteriorRowSumBlock;
+                    BuildSubmatrix(this->diagInteriorRowSum,
+                                   currEntityDofs(),
+                                   diagInteriorRowSumBlock);
 
+                    // Initialization of the solver object for the modified
+                    // block kBB.
+                    // If the entity is not a leaf and there are interface entities
+                    // that are neither a leaf or a root, then the dofs related to
+                    // the leaves must be eliminated alongside the interior ones.
                     SolverPtr kBBSolver;
                     if (numInterfaceNotRootNotLeafDofs != 0 && offspringDofs.size() != 0) {
                         XMatrixPtr diagLeavesRowSumBlock;
@@ -279,9 +289,12 @@ namespace FROSch {
 
     template <class SC, class LO, class GO, class NO>
     RCP<const Matrix<SC,LO,GO,NO>> AlgebraicMsFEMInterfacePartitionOfUnity<SC, LO, GO, NO>::assembleDiagSumMatrix(const Array<GO>& colIndices) const {
+        // Compute the row sum and convert the resulting vector in a diagonal matrix.
         XMultiVectorPtr rowSum = sumMatrixRows<SC, LO, GO, NO>(this->overlappingK,
                                                                colIndices);
         XMatrixPtr diagRowSum = MatrixFactory<SC, LO, GO, NO>::Build(rowSum->getVector(0));
+
+        // Convert the resulting matrix into a local (serial) matrix.
         ConstXMatrixPtr serialDiagRowSum = ExtractLocalSubdomainMatrix(diagRowSum.getConst(),
                                                                        this->repeatedMap.getConst(),
                                                                        this->serialRepeatedMap.getConst());
@@ -292,6 +305,7 @@ namespace FROSch {
     RCP<Solver<SC, LO, GO, NO>> AlgebraicMsFEMInterfacePartitionOfUnity<SC, LO, GO, NO>::initializeLocalInterfaceSolver(const XMatrixPtr kII,
                                                                                                                         const XMatrixPtr diagSumInterior,
                                                                                                                         const XMatrixPtr diagSumExtra) const {
+        // Compute kIIMod = kII + diagSumInterior
         XMatrixPtr kIIMod;
         MatrixMatrix<SC, LO, GO, NO>::TwoMatrixAdd(*kII,
                                                    false,
@@ -304,6 +318,7 @@ namespace FROSch {
                                                    false);
         kIIMod->fillComplete();
 
+        // If diagSumExtra was provided, compute kIIMod += diagSumExtra.
         if (!diagSumExtra.is_null()) {
             XMatrixPtr kIIModExtra;
             MatrixMatrix<SC, LO, GO, NO>::TwoMatrixAdd(*diagSumExtra,
@@ -335,8 +350,11 @@ namespace FROSch {
                                                                                   Array<GO> entityRootsDofs,
                                                                                   const SolverPtr kBBSolver,
                                                                                   XMultiVectorPtr mVPhiBV) const {
+        // Retrieve the ancestors of the entity.
         EntitySetPtr ancestors = entity->getAncestors();
         Array<GO> ancestorDofs = this->getEntitySetDofs(ancestors);
+
+        // Filter the roots from the ancestors of the entity.
         Array<GO> ancestorDofsNoRoots(ancestorDofs.size() - entityRootsDofs.size());
         std::set_difference(ancestorDofs.begin(),
                             ancestorDofs.end(),
@@ -344,6 +362,11 @@ namespace FROSch {
                             entityRootsDofs.end(),
                             ancestorDofsNoRoots.begin());
         
+        // Extract the blocks of the system matrix K related to the ancestors
+        // and the entity.
+        // A -> ancestors
+        // B -> current entity
+        // V -> roots
         XMatrixPtr kAA;
         XMatrixPtr kBA;
         XMatrixPtr kAV;
@@ -357,6 +380,8 @@ namespace FROSch {
                        entityRootsDofs(),
                        kAV);
         
+        // Extract the submatrices of the global row sum diagonal matrices
+        // related to the ancestors of `entity`.
         XMatrixPtr diagInteriorRowSumAncestorBlock;
         XMatrixPtr diagLeavesRowSumAncestorBlock;
         BuildSubmatrix(this->diagInteriorRowSum,
@@ -370,8 +395,10 @@ namespace FROSch {
                                                                    diagInteriorRowSumAncestorBlock,
                                                                    diagLeavesRowSumAncestorBlock);
         
+        // Converting kAV to a MultiVector so it can be used in Xpetra::Operator::apply.
         XMultiVectorPtr mVkAV = matrixToMultiVector<SC, LO, GO, NO>(kAV);
 
+        // mVPhiAV = kAAMod^-1 * mVkAV
         XMultiVectorPtr mVPhiAV = MultiVectorFactory<SC, LO, GO, NO>::Build(kAA->getDomainMap(),
                                                                             entityRootsDofs.size());
         for (UN k = 0; k < entityRootsDofs.size(); k++) {
@@ -379,6 +406,7 @@ namespace FROSch {
                              *mVPhiAV->getVectorNonConst(k));
         }
 
+        // mVPhiBVTmp = kBA * mVPhiAV
         XMultiVectorPtr mVPhiBVTmp = MultiVectorFactory<SC, LO, GO, NO>::Build(kBBSolver->getDomainMap(),
                                                                                entityRootsDofs.size());
         for (UN k = 0; k < entityRootsDofs.size(); k++) {
@@ -386,6 +414,7 @@ namespace FROSch {
                        *mVPhiBVTmp->getVectorNonConst(k));
         }
 
+        // mVPhiBVCorr = kBBMod^-1 * mVPhiBVTmp
         XMultiVectorPtr mVPhiBVCorr = MultiVectorFactory<SC, LO, GO, NO>::Build(kBBSolver->getDomainMap(),
                                                                                 entityRootsDofs.size());
         for (UN k = 0; k < entityRootsDofs.size(); k++) {
@@ -393,6 +422,7 @@ namespace FROSch {
                              *mVPhiBVCorr->getVectorNonConst(k));
         }
 
+        // mVPhiBV -= mVPhiBVCorr
         mVPhiBV->update(-ScalarTraits<SC>::one(),
                         *mVPhiBVCorr,
                         ScalarTraits<SC>::one());
