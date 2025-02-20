@@ -257,18 +257,6 @@ namespace FROSch {
         // All interface entities owned by the process.
         EntitySetConstPtr interfaceSet = this->DDInterface_->getInterface();
         this->interfaceDofs = this->getEntitySetDofs(interfaceSet);
-
-        // The reduced interface, i.e., all interface entities that are
-        // neither leaves nor roots.
-        UN numNotLeafOrRootDofs =  this->interfaceDofs.size() - this->rootDofs.size() - this->leafDofs.size();
-        this->reducedInterfaceDofs = Array<GO>(numNotLeafOrRootDofs);
-        Array<GO> leavesAndRootsDofs = Array<GO>(this->rootDofs.size() + this->leafDofs.size());
-        std::set_union(this->rootDofs.begin(), this->rootDofs.end(),
-                       this->leafDofs.begin(), this->leafDofs.end(),
-                       leavesAndRootsDofs.begin());
-        std::set_difference(this->interfaceDofs.begin(), this->interfaceDofs.end(),
-                            leavesAndRootsDofs.begin(), leavesAndRootsDofs.end(),
-                            this->reducedInterfaceDofs.begin());
     }
 
     template <class SC, class LO, class GO, class NO>
