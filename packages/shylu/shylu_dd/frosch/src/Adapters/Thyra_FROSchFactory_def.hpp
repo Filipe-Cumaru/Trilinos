@@ -257,13 +257,22 @@ namespace Thyra {
                 {
                     RCP<TwoLevelPreconditioner<SC,LO,GO,NO> > TLP(new TwoLevelPreconditioner<SC,LO,GO,NO>(A,paramList_));
 
+                    ConstXMapPtrVecPtr dofsMap = paramList_->isParameter("Dofs Maps")
+                        ? paramList_->get<ConstXMapPtrVecPtr>("Dofs Maps")
+                        : null;
+                    GOVecPtr dirichletBoundaryDofs = paramList_->isParameter("Dirichlet Boundary Dofs")
+                        ? paramList_->get<GOVecPtr>("Dirichlet Boundary Dofs")
+                        : null;
+
                     TLP->initialize(paramList_->get("Dimension",3),
                                     paramList_->get("DofsPerNode",1),
                                     paramList_->get("Overlap",1),
                                     nullSpaceBasis,
                                     coordinatesList,
                                     dofOrdering,
-                                    repeatedMap);
+                                    repeatedMap,
+                                    dofsMap,
+                                    dirichletBoundaryDofs);
 
                     schwarzPreconditioner = TLP;
                 }
