@@ -135,7 +135,7 @@ namespace FROSch {
         /////////////////////////////////////
         // Determine dirichletBoundaryDofs //
         /////////////////////////////////////
-        if (dirichletBoundaryDofs.is_null()) {
+        if (this->ParameterList_->get("Determine Dirichlet Rows", true)) {
             FROSCH_DETAILTIMER_START_LEVELID(determineDirichletRowsTime,"Determine Dirichlet Rows");
 #ifdef FindOneEntryOnlyRowsGlobal_Matrix
             GOVecPtr dirichletBoundaryDofs = FindOneEntryOnlyRowsGlobal(this->K_.getConst(),repeatedMap);
