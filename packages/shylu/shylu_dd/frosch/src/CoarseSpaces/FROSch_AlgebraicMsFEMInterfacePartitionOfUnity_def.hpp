@@ -87,7 +87,7 @@ namespace FROSch {
                     UN numRoots = currEntity->getRoots()->getNumEntities();
                     FROSCH_ASSERT(numRoots != 0, "rootID==-1 but numRoots==0!");
 
-                    // Retrive the dofs of the current entity and its offspring.
+                    // Retrieve the dofs of the current entity and its offspring.
                     EntitySetPtr currEntityRoots = currEntity->getRoots();
                     Array<GO> currEntityRootsDofs = this->getEntitySetDofs(currEntityRoots);
                     Array<GO> currEntityDofs = this->getEntityDofs(currEntity);
@@ -355,12 +355,13 @@ namespace FROSch {
         Array<GO> ancestorDofs = this->getEntitySetDofs(ancestors);
 
         // Filter the roots from the ancestors of the entity.
-        Array<GO> ancestorDofsNoRoots(ancestorDofs.size() - entityRootsDofs.size());
-        std::set_difference(ancestorDofs.begin(),
-                            ancestorDofs.end(),
-                            entityRootsDofs.begin(),
-                            entityRootsDofs.end(),
-                            ancestorDofsNoRoots.begin());
+        Array<GO> ancestorDofsNoRoots(ancestorDofs.size());
+        auto it = std::set_difference(ancestorDofs.begin(),
+                                      ancestorDofs.end(),
+                                      entityRootsDofs.begin(),
+                                      entityRootsDofs.end(),
+                                      ancestorDofsNoRoots.begin());
+        ancestorDofsNoRoots.resize(it - ancestorDofsNoRoots.begin());
         
         // Extract the blocks of the system matrix K related to the ancestors
         // and the entity.
