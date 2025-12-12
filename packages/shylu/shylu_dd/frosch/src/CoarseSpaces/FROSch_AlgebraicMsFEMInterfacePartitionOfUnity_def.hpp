@@ -47,12 +47,13 @@ namespace FROSch {
                                             true,   // roots
                                             false); // leaves
 
-        this->initializeDofsArrays();
+        EntitySetConstPtr interiorSet = this->DDInterface_->getInterior();
+        this->interiorDofs = this->getEntitySetDofs(interiorSet);
+        EntitySetConstPtr interfaceSet = this->DDInterface_->getInterface();
+        this->interfaceDofs = this->getEntitySetDofs(interfaceSet);
+
         this->initializeMaps();
         this->initializeOverlappingMatrices();
-
-        this->diagInteriorRowSum = this->assembleDiagSumMatrix(this->interiorDofs);
-        this->diagLeavesRowSum = this->assembleDiagSumMatrix(this->leafDofs);
     }
 
     template <class SC, class LO, class GO, class NO>
@@ -75,132 +76,56 @@ namespace FROSch {
         XMultiVectorPtr ipouVector = MultiVectorFactory<SC, LO, GO, NO>::Build(serialInterfaceMap,
                                                                                this->DDInterface_->getRoots()->getNumEntities());
 
-        for (UN i = 0; i < entitySetVector.size(); i++) {
-            for (UN j = 0; j < entitySetVector[i]->getNumEntities(); j++) {
-                InterfaceEntityPtr currEntity = entitySetVector[i]->getEntity(j);
-                LO rootId = currEntity->getRootID();
+        this->Roots_ = this->DDInterface_->getRoots();
+        this->Faces_ = this->DDInterface_->getFaces();
+        this->Edges_ = this->DDInterface_->getEdges();
 
-                if (rootId == -1) {
-                    // If not a coarse node, compute the interface IPOU
-                    // value using the algebraic MsFEM/AMS approach for
-                    // edge/face nodes.
-                    UN numRoots = currEntity->getRoots()->getNumEntities();
-                    FROSCH_ASSERT(numRoots != 0, "rootID==-1 but numRoots==0!");
-
-                    // Retrieve the dofs of the current entity and its offspring.
-                    EntitySetPtr currEntityRoots = currEntity->getRoots();
-                    Array<GO> currEntityRootsDofs = this->getEntitySetDofs(currEntityRoots);
-                    Array<GO> currEntityDofs = this->getEntityDofs(currEntity);
-                    Array<GO> offspringDofs = this->getEntitySetDofs(currEntity->getOffspring());
-                    Array<GO> otherDofs(offspringDofs);
-                    otherDofs.insert(otherDofs.end(),
-                                     this->interiorDofs.begin(),
-                                     this->interiorDofs.end());
-
-                    // Exract the submatrices required to assemble the IPOU.
-                    // These are equivalent to the blocks in the wirebasket order:
-                    //           (kII kIB kIV)
-                    // W^T K W = (kBI kBB kBV)
-                    //           (kVI kVB kVV)
-                    XMatrixPtr kBB;
-                    XMatrixPtr kBV;
-                    BuildSubmatrix(this->localK, currEntityDofs(), kBB);
-                    BuildSubmatrix(this->localK,
-                                   currEntityDofs(),
-                                   currEntityRootsDofs(),
-                                   kBV);
-                    
-                    // Extract the block in diagInteriorRowSum related to the
-                    // current entity.
-                    XMatrixPtr diagInteriorRowSumBlock;
-                    BuildSubmatrix(this->diagInteriorRowSum,
-                                   currEntityDofs(),
-                                   diagInteriorRowSumBlock);
-
-                    // Initialization of the solver object for the modified
-                    // block kBB.
-                    // If the entity is not a leaf and there are interface entities
-                    // that are neither a leaf or a root, then the dofs related to
-                    // the leaves must be eliminated alongside the interior ones.
-                    SolverPtr kBBSolver;
-                    if (numInterfaceNotRootNotLeafDofs != 0 && offspringDofs.size() != 0) {
-                        XMatrixPtr diagLeavesRowSumBlock;
-                        BuildSubmatrix(this->diagLeavesRowSum,
-                                       currEntityDofs(),
-                                       diagLeavesRowSumBlock);
-                        kBBSolver = this->initializeLocalInterfaceSolver(kBB,
-                                                                         diagInteriorRowSumBlock,
-                                                                         diagLeavesRowSumBlock);
-                    } else {
-                        kBBSolver = this->initializeLocalInterfaceSolver(kBB,
-                                                                         diagInteriorRowSumBlock);
-                    }
-
-                    // Convert kBV to a MultiVector so it can be used in
-                    // kBBSolver->apply(...).
-                    XMultiVectorPtr mVkBV = matrixToMultiVector<SC, LO, GO, NO>(kBV);
-
-                    // Compute the solution on the interface.
-                    XMultiVectorPtr mVPhiBV = MultiVectorFactory<SC, LO, GO, NO>::Build(kBB->getDomainMap(),
-                                                                                        currEntityRootsDofs.size());
-                    for (UN k = 0; k < currEntityRootsDofs.size(); k++) {
-                        kBBSolver->apply(*mVkBV->getVector(k),
-                                         *mVPhiBV->getVectorNonConst(k));
-                    }
-
-                    // If the interface entity is a leaf (no offspring), then
-                    // an additional term must be added to Phi_BV so the correct
-                    // basis functions are computed.
-                    // It can be interpreted as an extension of the BFs values
-                    // on the ancestors nodes, e.g. edges to faces in a 3-D
-                    // structured domain decomposition.
-                    if (numInterfaceNotRootNotLeafDofs != 0 && offspringDofs.size() == 0) {
-                        this->addAncestorTerm(currEntity,
-                                              currEntityDofs,
-                                              currEntityRootsDofs,
-                                              kBBSolver,
-                                              mVPhiBV);
-                    }
-
-                    // Add up the interface values to get a POU. This is done by multiplying
-                    // mVPhiBV by a vector of ones (onesV).
-                    XMultiVectorPtr onesV = MultiVectorFactory<SC, LO, GO, NO>::Build(kBV->getDomainMap(), 1);
-                    XMultiVectorPtr mVSumPhiBV = MultiVectorFactory<SC, LO, GO, NO>::Build(kBV->getRangeMap(), 1);
-                    onesV->putScalar(ScalarTraits<SC>::one());
-                    mVSumPhiBV->multiply(Teuchos::ETransp::NO_TRANS,
-                                         Teuchos::ETransp::NO_TRANS,
-                                         ScalarTraits<SC>::one(),
-                                         *mVPhiBV,
-                                         *onesV,
-                                         ScalarTraits<SC>::zero());
-                    ArrayRCP<const SC> sumPhiBV = mVSumPhiBV->getData(0);
-
-                    // Set the entries on the IPOU vector.
-                    for (UN k = 0; k < numRoots; k++) {
-                        LO rootIdx = currEntityRoots->getEntity(k)->getRootID();
-                        ArrayRCP<const SC> mVPhiBVk = mVPhiBV->getData(k);
-                        UN n = 0;
-                        for (UN l = 0; l < currEntity->getNumNodes(); l++) {
-                            for (UN m = 0; m < dofsPerNode; m++) {
-                                SC value = mVPhiBVk[n] / sumPhiBV[n];
-                                ipouVector->replaceLocalValue(currEntity->getGammaDofID(l, m),
-                                                              rootIdx,
-                                                              value * ScalarTraits<SC>::one());
-                                n += 1;
-                            }
-                        }
-                    }
-                } else {
-                    // If coarse node, fill in the IPOU function with ones.
-                    for (UN k = 0; k < currEntity->getNumNodes(); k++) {
-                        for (UN l = 0; l < dofsPerNode; l++) {
-                            ipouVector->replaceLocalValue(currEntity->getGammaDofID(k, l),
-                                                          rootId,
-                                                          ScalarTraits<SC>::one());
-                        }
-                    }
+        this->initializeDofsArrays();
+        this->diagInteriorRowSum = this->assembleDiagSumMatrix(this->interiorDofs);
+        this->diagFacesRowSum = this->assembleDiagSumMatrix(this->faceDofs);
+        
+        // Set the IPOU values related to the root dofs to 1.
+        for (UN i = 0; i < this->Roots_->getNumEntities(); i++) {
+            InterfaceEntityPtr rootEntity = this->Roots_->getEntity(i);
+            for (UN j = 0; j < rootEntity->getNumNodes(); j++) {
+                for (UN k = 0; k < dofsPerNode; k++) {
+                    ipouVector->replaceLocalValue(rootEntity->getGammaDofID(j, k),
+                                                  rootEntity->getRootID(),
+                                                  ScalarTraits<SC>::one());
                 }
             }
+        }
+
+        // Compute the IPOU values for the edge entities.
+        for (UN i = 0; i < this->Edges_->getNumEntities(); i++) {
+            InterfaceEntityPtr edgeEntity = this->Edges_->getEntity(i);
+            UN numRoots = edgeEntity->getRoots()->getNumEntities();
+
+            // Skip if root.
+            LO rootId = edgeEntity->getRootID();
+            if (rootId != -1) {
+                continue;
+            }
+
+            FROSCH_ASSERT(numRoots != 0, "rootID==-1 but numRoots==0!");
+
+            this->computeEntityIPOU(edgeEntity, ipouVector, true, false);
+        }
+
+        // Compute the IPOU values for the face entities.
+        for (UN i = 0; i < this->Faces_->getNumEntities(); i++) {
+            InterfaceEntityPtr faceEntity = this->Faces_->getEntity(i);
+            UN numRoots = faceEntity->getRoots()->getNumEntities();
+
+            // Skip if root.
+            LO rootId = faceEntity->getRootID();
+            if (rootId != -1) {
+                continue;
+            }
+
+            FROSCH_ASSERT(numRoots != 0, "rootID==-1 but numRoots==0!");
+
+            this->computeEntityIPOU(faceEntity, ipouVector, false, true);
         }
 
         this->LocalPartitionOfUnity_[0] = ipouVector;
@@ -251,18 +176,42 @@ namespace FROSch {
     template <class SC, class LO, class GO, class NO>
     void AlgebraicMsFEMInterfacePartitionOfUnity<SC, LO, GO, NO>::initializeDofsArrays() {
         // Retrieve all root entities owned by the process.
-        EntitySetPtr rootsSet = this->DDInterface_->getRoots();
-        this->rootDofs = this->getEntitySetDofs(rootsSet);
+        this->rootDofs = this->getEntitySetDofs(this->Roots_);
         std::sort(this->rootDofs.begin(), this->rootDofs.end());
-
-        // Leaf entities and dofs.
-        EntitySetConstPtr leavesSet = this->DDInterface_->getLeafs();
-        this->leafDofs = this->getEntitySetDofs(leavesSet);
-        std::sort(this->leafDofs.begin(), this->leafDofs.end());
 
         // Interior entities and their dofs.
         EntitySetConstPtr interiorSet = this->DDInterface_->getInterior();
         this->interiorDofs = this->getEntitySetDofs(interiorSet);
+
+        // Face entities and their dofs.
+        Array<GO> faceEntityDofs;
+        for (UN i = 0; i < this->Faces_->getNumEntities(); i++) {
+            InterfaceEntityPtr faceEntity = this->Faces_->getEntity(i);
+            LO rootId = faceEntity->getRootID();
+            if (rootId != -1) {
+                continue;
+            }
+            faceEntityDofs = this->getEntityDofs(faceEntity);
+            this->faceDofs.insert(this->faceDofs.end(),
+                                  faceEntityDofs.begin(),
+                                  faceEntityDofs.end());
+        }
+        std::sort(this->faceDofs.begin(), this->faceDofs.end());
+
+        // Edge entities and their dofs.
+        Array<GO> edgeEntityDofs;
+        for (UN i = 0; i < this->Edges_->getNumEntities(); i++) {
+            InterfaceEntityPtr edgeEntity = this->Edges_->getEntity(i);
+            LO rootId = edgeEntity->getRootID();
+            if (rootId != -1) {
+                continue;
+            }
+            edgeEntityDofs = this->getEntityDofs(edgeEntity);
+            this->edgeDofs.insert(this->edgeDofs.end(),
+                                  edgeEntityDofs.begin(),
+                                  edgeEntityDofs.end());
+        }
+        std::sort(this->edgeDofs.begin(), this->edgeDofs.end());
 
         // All interface entities owned by the process.
         EntitySetConstPtr interfaceSet = this->DDInterface_->getInterface();
@@ -345,24 +294,114 @@ namespace FROSch {
     }
 
     template <class SC, class LO, class GO, class NO>
+    void AlgebraicMsFEMInterfacePartitionOfUnity<SC, LO, GO, NO>::computeEntityIPOU(const InterfaceEntityPtr entity,
+                                                                                    XMultiVectorPtr ipouVector,
+                                                                                    bool removeFacesFromDiag,
+                                                                                    bool addAncestorTerm) const {
+        UN dofsPerNode = this->DDInterface_->getInterface()->getEntity(0)->getDofsPerNode();
+
+        // Retrieve the dofs of the current entity and of its roots.
+        EntitySetPtr entityRoots = entity->getRoots();
+        UN numRoots = entityRoots->getNumEntities();
+        Array<GO> entityRootsDofs = this->getEntitySetDofs(entityRoots);
+        Array<GO> entityDofs = this->getEntityDofs(entity);
+
+        // Exract the submatrices required to assemble the IPOU.
+        // kBB is the block related to the dofs in `entity`, and
+        // kBV is the block coupling the dofs in `entity` and its roots.
+        XMatrixPtr kBB;
+        BuildSubmatrix(this->localK, entityDofs(), kBB);
+        XMatrixPtr kBV;
+        BuildSubmatrix(this->localK,
+                        entityDofs(),
+                        entityRootsDofs(),
+                        kBV);
+
+        // Extract the submatrices of the global row sum diagonal matrices.
+        // For any non-root entity, the influence of the interior dofs must
+        // be removed.
+        XMatrixPtr diagInteriorRowSumBlock;
+        BuildSubmatrix(this->diagInteriorRowSum,
+                       entityDofs(),
+                       diagInteriorRowSumBlock);
+
+        // If necessary, remove the influence of the face dofs (e.g., for edge entities).
+        XMatrixPtr diagFacesRowSumBlock = null;
+        if (removeFacesFromDiag) {
+            BuildSubmatrix(this->diagFacesRowSum,
+                           entityDofs(),
+                           diagFacesRowSumBlock);
+        }
+
+        // Initialize a solver object to solve the reduced boundary condition
+        // system (kBB + diagInteriorRowSumBlock + diagFacesRowSumBlock)x = b.
+        SolverPtr kBBSolver = this->initializeLocalInterfaceSolver(kBB,
+                                                                   diagInteriorRowSumBlock,
+                                                                   diagFacesRowSumBlock);
+
+        // Apply kBBSolver to the columns of kBV.
+        XMultiVectorPtr mVkBV = matrixToMultiVector<SC, LO, GO, NO>(kBV);
+        XMultiVectorPtr mVPhiBV = MultiVectorFactory<SC, LO, GO, NO>::Build(kBB->getDomainMap(),
+                                                                            entityRootsDofs.size());
+        for (UN i = 0; i < entityRootsDofs.size(); i++) {
+            kBBSolver->apply(*mVkBV->getVector(i),
+                             *mVPhiBV->getVectorNonConst(i));
+        }
+
+        // For face entities in 3D, an additional IPOU term related to the
+        // ancestors of the entitty must be added.
+        if (addAncestorTerm) {
+            EntitySetPtr entityAncestors = entity->getAncestors();
+            Array<GO> ancestorDofs = this->getEntitySetDofs(entityAncestors);
+            Array<GO> ancestorDofsNoRoots(ancestorDofs.size());
+            auto it = std::set_difference(ancestorDofs.begin(),
+                                          ancestorDofs.end(),
+                                          entityRootsDofs.begin(),
+                                          entityRootsDofs.end(),
+                                          ancestorDofsNoRoots.begin());
+            ancestorDofsNoRoots.resize(it - ancestorDofsNoRoots.begin());
+            if (ancestorDofsNoRoots.size() > 0) {
+                this->addAncestorTerm(entity,
+                                      entityDofs,
+                                      entityRootsDofs,
+                                      ancestorDofsNoRoots,
+                                      kBBSolver,
+                                      mVPhiBV);
+            }
+        }
+
+        // Normalize the computed IPOU values and store them in `ipouVector`.
+        XMultiVectorPtr onesV = MultiVectorFactory<SC, LO, GO, NO>::Build(kBV->getDomainMap(), 1);
+        XMultiVectorPtr mVSumPhiBV = MultiVectorFactory<SC, LO, GO, NO>::Build(kBV->getRangeMap(), 1);
+        onesV->putScalar(ScalarTraits<SC>::one());
+        mVSumPhiBV->multiply(Teuchos::ETransp::NO_TRANS,
+                             Teuchos::ETransp::NO_TRANS,
+                             ScalarTraits<SC>::one(),
+                             *mVPhiBV,
+                             *onesV,
+                             ScalarTraits<SC>::zero());
+        ArrayRCP<const SC> sumPhiBV = mVSumPhiBV->getData(0);
+        for (UN i = 0; i < numRoots; i++) {
+            LO rootIdx = entityRoots->getEntity(i)->getRootID();
+            ArrayRCP<const SC> mVPhiBVk = mVPhiBV->getData(i);
+            UN n = 0;
+            for (UN j = 0; j < entity->getNumNodes(); j++) {
+                for (UN k = 0; k < dofsPerNode; k++) {
+                    SC value = mVPhiBVk[n] / sumPhiBV[n];
+                    ipouVector->replaceLocalValue(entity->getGammaDofID(j, k), rootIdx, value);
+                    n += 1;
+                }
+            }
+        }
+    }
+
+    template <class SC, class LO, class GO, class NO>
     void AlgebraicMsFEMInterfacePartitionOfUnity<SC, LO, GO, NO>::addAncestorTerm(const InterfaceEntityPtr entity,
                                                                                   Array<GO> entityDofs,
                                                                                   Array<GO> entityRootsDofs,
+                                                                                  Array<GO> ancestorDofsNoRoots,
                                                                                   const SolverPtr kBBSolver,
                                                                                   XMultiVectorPtr mVPhiBV) const {
-        // Retrieve the ancestors of the entity.
-        EntitySetPtr ancestors = entity->getAncestors();
-        Array<GO> ancestorDofs = this->getEntitySetDofs(ancestors);
-
-        // Filter the roots from the ancestors of the entity.
-        Array<GO> ancestorDofsNoRoots(ancestorDofs.size());
-        auto it = std::set_difference(ancestorDofs.begin(),
-                                      ancestorDofs.end(),
-                                      entityRootsDofs.begin(),
-                                      entityRootsDofs.end(),
-                                      ancestorDofsNoRoots.begin());
-        ancestorDofsNoRoots.resize(it - ancestorDofsNoRoots.begin());
-        
         // Extract the blocks of the system matrix K related to the ancestors
         // and the entity.
         // A -> ancestors
@@ -388,7 +427,7 @@ namespace FROSch {
         BuildSubmatrix(this->diagInteriorRowSum,
                        ancestorDofsNoRoots(),
                        diagInteriorRowSumAncestorBlock);
-        BuildSubmatrix(this->diagLeavesRowSum,
+        BuildSubmatrix(this->diagFacesRowSum,
                        ancestorDofsNoRoots(),
                        diagLeavesRowSumAncestorBlock);
 

@@ -82,12 +82,18 @@ namespace FROSch {
         // Analogous to diagInteriorRowSum for the leaf dofs.
         ConstXMatrixPtr diagLeavesRowSum;
 
+        // Analogous to diagInteriorRowSum for the face dofs.
+        ConstXMatrixPtr diagFacesRowSum;
+
         // A non-unique map containing all the dofs in the unique map plus
         // the interface dofs.
         XMapPtr repeatedMap;
 
         // The repeated map defined on a serial communicator.
         XMapPtr serialRepeatedMap;
+
+        // Entity set containing the roots (coarse nodes).
+        EntitySetPtr Roots_;
 
         // Teuchos array containing all interior dofs.
         Array<GO> interiorDofs;
@@ -100,6 +106,12 @@ namespace FROSch {
 
         // Teuchos array containing all leaf dofs.
         Array<GO> leafDofs;
+
+        // Face dofs
+        Array<GO> faceDofs;
+
+        // Edge dofs
+        Array<GO> edgeDofs;
 
         RCP<basic_FancyOStream<char>> blackHoleStream;
 
@@ -180,6 +192,11 @@ namespace FROSch {
                                                                    const XMatrixPtr diagSumInterior,
                                                                    const XMatrixPtr diagSumExtra = null) const;
         
+        void computeEntityIPOU(const InterfaceEntityPtr entity,
+                               XMultiVectorPtr ipouVector,
+                               bool removeFacesFromDiag,
+                               bool addAncestorTerm) const;
+        
         /**
          * \brief Computes an additional term for the IPOU related to any ancestor of `entity`.
          * 
@@ -209,6 +226,7 @@ namespace FROSch {
         void addAncestorTerm(const InterfaceEntityPtr entity,
                              Array<GO> entityDofs,
                              Array<GO> entityRootsDofs,
+                             Array<GO> ancestorDofsNoRoots,
                              const SolverPtr kBBSolver,
                              XMultiVectorPtr mVPhiBV) const;
     };
