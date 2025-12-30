@@ -46,14 +46,6 @@ namespace FROSch {
                                             false,  // faces
                                             true,   // roots
                                             false); // leaves
-
-        EntitySetConstPtr interiorSet = this->DDInterface_->getInterior();
-        this->interiorDofs = this->getEntitySetDofs(interiorSet);
-        EntitySetConstPtr interfaceSet = this->DDInterface_->getInterface();
-        this->interfaceDofs = this->getEntitySetDofs(interfaceSet);
-
-        this->initializeMaps();
-        this->initializeOverlappingMatrices();
     }
 
     template <class SC, class LO, class GO, class NO>
@@ -63,9 +55,7 @@ namespace FROSch {
 
         UN dofsPerNode = this->DDInterface_->getInterface()->getEntity(0)->getDofsPerNode();
         UN numInterfaceDofs = dofsPerNode * this->DDInterface_->getInterface()->getEntity(0)->getNumNodes();
-        UN numInterfaceNotRootNotLeafDofs = numInterfaceDofs - this->rootDofs.size() - this->leafDofs.size();
 
-        EntitySetPtrVecPtr entitySetVector = this->DDInterface_->getEntitySetVector();
         this->PartitionOfUnityMaps_[0] = this->DDInterface_->getRoots()->getEntityMap();
 
         // Initialization of a vector to store the IPOU values.
@@ -73,14 +63,20 @@ namespace FROSch {
                                                                    numInterfaceDofs,
                                                                    0,
                                                                    this->SerialComm_);
-        XMultiVectorPtr ipouVector = MultiVectorFactory<SC, LO, GO, NO>::Build(serialInterfaceMap,
-                                                                               this->DDInterface_->getRoots()->getNumEntities());
+        this->localIPOUVector = MultiVectorFactory<SC, LO, GO, NO>::Build(serialInterfaceMap,
+                                                                          this->DDInterface_->getRoots()->getNumEntities());
 
         this->Roots_ = this->DDInterface_->getRoots();
         this->Faces_ = this->DDInterface_->getFaces();
         this->Edges_ = this->DDInterface_->getEdges();
 
+        // Initialize some auxiliary structures. Ideally, these should be inside
+        // the constructor, but they depend on the classification of the interface
+        // entities, which is only done after the constructor call.
         this->initializeDofsArrays();
+        this->initializeMaps();
+        this->initializeDofIDsArrays();
+        this->initializeOverlappingMatrices();
         this->diagInteriorRowSum = this->assembleDiagSumMatrix(this->interiorDofs);
         this->diagFacesRowSum = this->assembleDiagSumMatrix(this->faceDofs);
         
@@ -89,9 +85,9 @@ namespace FROSch {
             InterfaceEntityPtr rootEntity = this->Roots_->getEntity(i);
             for (UN j = 0; j < rootEntity->getNumNodes(); j++) {
                 for (UN k = 0; k < dofsPerNode; k++) {
-                    ipouVector->replaceLocalValue(rootEntity->getGammaDofID(j, k),
-                                                  rootEntity->getRootID(),
-                                                  ScalarTraits<SC>::one());
+                    this->localIPOUVector->replaceLocalValue(rootEntity->getGammaDofID(j, k),
+                                                             rootEntity->getRootID(),
+                                                             ScalarTraits<SC>::one());
                 }
             }
         }
@@ -109,7 +105,7 @@ namespace FROSch {
 
             FROSCH_ASSERT(numRoots != 0, "rootID==-1 but numRoots==0!");
 
-            this->computeEntityIPOU(edgeEntity, ipouVector, true, false);
+            this->computeEntityIPOU(edgeEntity, true, false);
         }
 
         // Compute the IPOU values for the face entities.
@@ -125,10 +121,10 @@ namespace FROSch {
 
             FROSCH_ASSERT(numRoots != 0, "rootID==-1 but numRoots==0!");
 
-            this->computeEntityIPOU(faceEntity, ipouVector, false, true);
+            this->computeEntityIPOU(faceEntity, false, true);
         }
 
-        this->LocalPartitionOfUnity_[0] = ipouVector;
+        this->LocalPartitionOfUnity_[0] = this->localIPOUVector.getConst();
 
         return 0;
     }
@@ -225,15 +221,34 @@ namespace FROSch {
                        this->interfaceDofs.begin(), this->interfaceDofs.end(),
                        allDofs.begin());
         this->repeatedMap = MapFactory<LO, GO, NO>::Build(this->K_->getRowMap()->lib(),
-                                                         Teuchos::OrdinalTraits<GO>::invalid(),
-                                                         allDofs(),
-                                                         0,
-                                                         this->MpiComm_);
+                                                          Teuchos::OrdinalTraits<GO>::invalid(),
+                                                          allDofs(),
+                                                          0,
+                                                          this->MpiComm_);
         this->serialRepeatedMap = MapFactory<LO, GO, NO>::Build(this->K_->getRowMap()->lib(),
-                                                               Teuchos::OrdinalTraits<GO>::invalid(),
-                                                               allDofs(),
-                                                               0,
-                                                               this->SerialComm_);
+                                                                Teuchos::OrdinalTraits<GO>::invalid(),
+                                                                allDofs(),
+                                                                0,
+                                                                this->SerialComm_);
+    }
+
+    template <class SC, class LO, class GO, class NO>
+    void AlgebraicMsFEMInterfacePartitionOfUnity<SC, LO, GO, NO>::initializeDofIDsArrays() {
+        this->gammaDofIDs = Array<LO>(this->repeatedMap->getLocalNumElements(), -1);
+        this->rootIDs = Array<LO>(this->repeatedMap->getLocalNumElements(), -1);
+        EntitySetPtrVecPtr entitySetVector = this->DDInterface_->getEntitySetVector();
+        for (UN i = 0; i < entitySetVector.size(); i++) {
+            for (UN j = 0; j < entitySetVector[i]->getNumEntities(); j++) {
+                InterfaceEntityPtr entity = entitySetVector[i]->getEntity(j);
+                for (UN k = 0; k < entity->getNumNodes(); k++) {
+                    for (UN l = 0; l < entity->getDofsPerNode(); l++) {
+                        LO localDofID = this->repeatedMap->getLocalElement(entity->getGlobalDofID(k, l));
+                        this->gammaDofIDs[localDofID] = entity->getGammaDofID(k, l);
+                        this->rootIDs[localDofID] = entity->getRootID();
+                    }
+                }
+            }
+        }
     }
 
     template <class SC, class LO, class GO, class NO>
@@ -295,7 +310,6 @@ namespace FROSch {
 
     template <class SC, class LO, class GO, class NO>
     void AlgebraicMsFEMInterfacePartitionOfUnity<SC, LO, GO, NO>::computeEntityIPOU(const InterfaceEntityPtr entity,
-                                                                                    XMultiVectorPtr ipouVector,
                                                                                     bool removeFacesFromDiag,
                                                                                     bool addAncestorTerm) const {
         UN dofsPerNode = this->DDInterface_->getInterface()->getEntity(0)->getDofsPerNode();
@@ -388,7 +402,9 @@ namespace FROSch {
             for (UN j = 0; j < entity->getNumNodes(); j++) {
                 for (UN k = 0; k < dofsPerNode; k++) {
                     SC value = mVPhiBVk[n] / sumPhiBV[n];
-                    ipouVector->replaceLocalValue(entity->getGammaDofID(j, k), rootIdx, value);
+                    this->localIPOUVector->replaceLocalValue(entity->getGammaDofID(j, k),
+                                                             rootIdx,
+                                                             value);
                     n += 1;
                 }
             }
@@ -407,43 +423,25 @@ namespace FROSch {
         // A -> ancestors
         // B -> current entity
         // V -> roots
-        XMatrixPtr kAA;
         XMatrixPtr kBA;
-        XMatrixPtr kAV;
-        BuildSubmatrix(this->localK, ancestorDofsNoRoots(), kAA);
         BuildSubmatrix(this->localK,
                        entityDofs(),
                        ancestorDofsNoRoots(),
                        kBA);
-        BuildSubmatrix(this->localK,
-                       ancestorDofsNoRoots(),
-                       entityRootsDofs(),
-                       kAV);
-        
-        // Extract the submatrices of the global row sum diagonal matrices
-        // related to the ancestors of `entity`.
-        XMatrixPtr diagInteriorRowSumAncestorBlock;
-        XMatrixPtr diagLeavesRowSumAncestorBlock;
-        BuildSubmatrix(this->diagInteriorRowSum,
-                       ancestorDofsNoRoots(),
-                       diagInteriorRowSumAncestorBlock);
-        BuildSubmatrix(this->diagFacesRowSum,
-                       ancestorDofsNoRoots(),
-                       diagLeavesRowSumAncestorBlock);
 
-        SolverPtr kAASolver = this->initializeLocalInterfaceSolver(kAA,
-                                                                   diagInteriorRowSumAncestorBlock,
-                                                                   diagLeavesRowSumAncestorBlock);
-        
-        // Converting kAV to a MultiVector so it can be used in Xpetra::Operator::apply.
-        XMultiVectorPtr mVkAV = matrixToMultiVector<SC, LO, GO, NO>(kAV);
-
-        // mVPhiAV = kAAMod^-1 * mVkAV
-        XMultiVectorPtr mVPhiAV = MultiVectorFactory<SC, LO, GO, NO>::Build(kAA->getDomainMap(),
+        // Initialize mVPhiAV with the values of the IPOU on the ancestors.
+        XMultiVectorPtr mVPhiAV = MultiVectorFactory<SC, LO, GO, NO>::Build(kBA->getDomainMap(),
                                                                             entityRootsDofs.size());
-        for (UN k = 0; k < entityRootsDofs.size(); k++) {
-            kAASolver->apply(*mVkAV->getVector(k),
-                             *mVPhiAV->getVectorNonConst(k));
+        for (UN i = 0; i < entityRootsDofs.size(); i++) {
+            LO rootDofLocalIdx = this->repeatedMap->getLocalElement(entityRootsDofs[i]);
+            LO rootID = this->rootIDs[rootDofLocalIdx];
+            ArrayRCP<const SC> rootIpou = this->localIPOUVector->getData(rootID);
+            for (UN j = 0; j < ancestorDofsNoRoots.size(); j++) {
+                LO nonRootAncestorDofLocalIdx = this->repeatedMap->getLocalElement(ancestorDofsNoRoots[j]);
+                LO gammaDofID = this->gammaDofIDs[nonRootAncestorDofLocalIdx];
+                LO localRowIdx = kBA->getDomainMap()->getLocalElement(ancestorDofsNoRoots[j]);
+                mVPhiAV->replaceLocalValue(localRowIdx, i, rootIpou[gammaDofID]);
+            }
         }
 
         // mVPhiBVTmp = kBA * mVPhiAV

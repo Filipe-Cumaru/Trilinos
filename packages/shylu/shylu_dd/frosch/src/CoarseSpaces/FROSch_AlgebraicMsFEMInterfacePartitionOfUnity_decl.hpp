@@ -79,9 +79,6 @@ namespace FROSch {
         // of ones.
         ConstXMatrixPtr diagInteriorRowSum;
 
-        // Analogous to diagInteriorRowSum for the leaf dofs.
-        ConstXMatrixPtr diagLeavesRowSum;
-
         // Analogous to diagInteriorRowSum for the face dofs.
         ConstXMatrixPtr diagFacesRowSum;
 
@@ -104,14 +101,24 @@ namespace FROSch {
         // Teuchos array containing all root dofs.
         Array<GO> rootDofs;
 
-        // Teuchos array containing all leaf dofs.
-        Array<GO> leafDofs;
-
         // Face dofs
         Array<GO> faceDofs;
 
         // Edge dofs
         Array<GO> edgeDofs;
+
+        // Array mapping local indices to their corresponding interface IDs
+        // retrieved using the getGammaDofID method of InterfaceEntity. If the
+        // local index does not correspond to an interface dof, the value is -1.
+        Array<LO> gammaDofIDs;
+
+        // Array mapping local indices to their corresponding root IDs retrieved
+        // using the getRootID method of InterfaceEntity. If the local index does
+        // not correspond to a root dof, the value is -1.
+        Array<LO> rootIDs;
+
+        // Xpetra MultiVector used to store the computed values of the IPOU.
+        XMultiVectorPtr localIPOUVector;
 
         RCP<basic_FancyOStream<char>> blackHoleStream;
 
@@ -145,9 +152,15 @@ namespace FROSch {
         void initializeMaps();
 
         /**
-         * \brief Initializes the arrays `interiorDofs`, `interfaceDofs` and `leafDofs`.
+         * \brief Initializes the arrays `interiorDofs`, `interfaceDofs`, `faceDofs`,
+         * `edgeDofs`, and `rootDofs`.
          */
         void initializeDofsArrays();
+
+        /**
+         * \brief Initializes the arrays `gammaDofIDs` and `rootIDs`.
+         */
+        void initializeDofIDsArrays();
 
         /**
          * \brief Computes a diagonal matrix containing the sum of each row over
@@ -177,7 +190,7 @@ namespace FROSch {
          * `kIIMod = kII + diagSumInterior + diagSumExtra`.
          * If `diagSumExtra` is `null`, then it computes:
          * `kIIMod = kII + diagSumInterior`.
-         * After this, the solver objected is initialized using `kIIMod`.
+         * After this, the solver object is initialized using `kIIMod`.
          * 
          * \param[in ] kII The matrix used in the elimination procedure and for
          * which the solver is computed
@@ -192,23 +205,33 @@ namespace FROSch {
                                                                    const XMatrixPtr diagSumInterior,
                                                                    const XMatrixPtr diagSumExtra = null) const;
         
+        /**
+         * \brief Computes the IPOU for a given interface entity.
+         * 
+         * \param[in ] entity The interface entity for which the IPOU will be computed.
+         * 
+         * \param[in ] removeFacesFromDiag If true, the face dofs are eliminated
+         * when computing the interface solver.
+         * 
+         * \param[in ] addAncestorTerm If true, the additional term related to
+         * any ancestor of `entity` will be computed by calling `addAncestorTerm`
+         * and added to the IPOU values.
+         */
         void computeEntityIPOU(const InterfaceEntityPtr entity,
-                               XMultiVectorPtr ipouVector,
                                bool removeFacesFromDiag,
                                bool addAncestorTerm) const;
         
         /**
          * \brief Computes an additional term for the IPOU related to any ancestor of `entity`.
          * 
-         * For interface entities that are leaves, the formulation of the
-         * algebraic MsFEM IPOU involves an additional term besides the
-         * extension from the root dofs.
-         * In global notation:
-         * \Phi_{L} = -\tilde{K}_{LL}^{-1} * K_{LV} + \tilde{K}_{LL}^{-1} * K_{LR} * \tilde{K}_{LL}^{-1} * K_{LV}
-         *            |____________(I)_____________|  |_________________________(II)____________________________|
-         * where the indices V, L and R correspond to root, leaf and the remaining
-         * interface entities. This member function computes the term (II) assuming
-         * that `mVPhiBV` already contains (I).
+         * For interface entities that have non-root ancestors, the formulation
+         * of the algebraic MsFEM IPOU involves an additional term besides the
+         * extension from the root dofs. The IPOU for such entities is given by:
+         * \Phi_{B} = -\tilde{K}_{BB}^{-1} * K_{BV} + \tilde{K}_{BB}^{-1} * K_{BA} * \Phi_{A}
+         *            |____________(I)_____________|  |________________(II)_________________|
+         * where the indices A, B and V correspond to dofs in the ancestor,
+         * current and root entities, respectively. This member function computes
+         * the term (II) assuming that `mVPhiBV` already contains (I).
          * 
          * \param[in ] entity The interface entity for which the term will be computed.
          * 
@@ -216,6 +239,9 @@ namespace FROSch {
          * 
          * \param[in ] entityRootsDofs The global indices of the dofs of the
          * roots of `entity`.
+         * 
+         * \param[in ] ancestorDofsNoRoots The global indices of the dofs of the
+         * ancestors of `entity`, excluding any root dofs.
          * 
          * \param[in ] kBBSolver A solver object for the modified matrix block
          * related to the dofs in `entity`.
