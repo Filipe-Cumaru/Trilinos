@@ -451,6 +451,23 @@ namespace FROSch {
         // Throw the error
         FROSCH_ASSERT(false, errMsg.str());
     }
+
+    // ---------------
+    // Auxiliary data structures and functions used to fix disconnected interfaces.
+    // ---------------
+
+    /**
+     * \brief Computes the connected components in a graph represented by a sparse matrix.
+     * 
+     * \param[in ] mat The adjacency matrix of the graph.
+     * 
+     * \return A map with the connected components found in the graph. The keys
+     * to the map are the global indices of the representative node of the component,
+     * and the values are unique and sorted Teuchos arrays containing the global
+     * indices of the nodes in the component.
+     */
+    template <class SC,class LO,class GO,class NO>
+    std::map<GO, Array<GO>> findConnectedComponents(RCP<Xpetra::Matrix<SC, LO, GO, NO>>& mat);
 }
 
 #endif

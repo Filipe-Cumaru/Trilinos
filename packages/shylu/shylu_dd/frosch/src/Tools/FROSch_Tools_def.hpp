@@ -1909,6 +1909,78 @@ namespace FROSch {
         return 0;
     }
 #endif
+
+    template <class SC,class LO,class GO,class NO>
+    std::map<GO, Array<GO>> findConnectedComponents(RCP<Xpetra::Matrix<SC, LO, GO, NO>>& mat)
+    {
+        // Initialize the components as singletons containing each node.
+        // The nodeToComponent map keeps track of which component contains each node.
+        std::map<LO, Array<LO>> components;
+        std::map<LO, LO> nodeToComponent;
+        for (LO i = 0; i < mat->getLocalNumRows(); i++) {
+            components[i] = Array<LO>({ i });
+            nodeToComponent[i] = i;
+        }
+
+        for (LO i = 0; i < mat->getLocalNumRows(); i++) {
+            // Find the local neighbors of node i.
+            ArrayView<const LO> colIndices;
+            ArrayView<const SC> values;
+            mat->getLocalRowView(i, colIndices, values);
+
+            // Filter out zero entries to eliminate false connections.
+            Array<LO> nonZeroColIndices;
+            for (unsigned j = 0; j < colIndices.size(); j++) {
+                if (std::abs(values[j]) > 1e-10) {
+                    nonZeroColIndices.push_back(colIndices[j]);
+                }
+            }
+
+            for (LO colIdx : nonZeroColIndices) {
+                // For each neighbor, if it belongs to a different component, merge the
+                // two components.
+                if (nodeToComponent[colIdx] != nodeToComponent[i]) {
+                    Array<LO> newComponent;
+                    std::set_union(components[nodeToComponent[i]].begin(),
+                                   components[nodeToComponent[i]].end(),
+                                   components[nodeToComponent[colIdx]].begin(),
+                                   components[nodeToComponent[colIdx]].end(),
+                                   std::back_inserter(newComponent));
+                    
+                    // Update the component that the current node represents.
+                    components[nodeToComponent[i]] = newComponent;
+
+                    // Set the merged component to an empty array.
+                    components[nodeToComponent[colIdx]] = Array<LO>();
+
+                    // Update the index of the component for all nodes in the
+                    // merged component.
+                    for (LO nodeInNewComp : newComponent) {
+                        nodeToComponent[nodeInNewComp] = nodeToComponent[i];
+                    }
+                }
+            }
+        }
+
+        // Filter out the empty components resulting from the merges.
+        std::map<GO, Array<GO>> globalComponents;
+        for (auto it = components.begin(); it != components.end(); ) {
+            if (it->second.empty()) {
+                it = components.erase(it);
+            } else {
+                GO globalNodeIdx = mat->getRowMap()->getGlobalElement(it->first);
+                Array<GO> globalComponent(it->second.size());
+                for (unsigned j = 0; j < it->second.size(); j++) {
+                    globalComponent[j] = mat->getRowMap()->getGlobalElement(it->second[j]);
+                }
+                globalComponents[globalNodeIdx] = globalComponent;
+                ++it;
+            }
+        }
+
+        return globalComponents;
+    }
+
 } // namespace FROSch
 
 #endif
