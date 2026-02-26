@@ -22,6 +22,8 @@
 
 #include <FROSch_ExtractSubmatrices_def.hpp>
 
+#include <queue>
+
 
 namespace FROSch {
 
@@ -29,6 +31,8 @@ namespace FROSch {
     using namespace Xpetra;
 
     enum CommunicationStrategy {CommCrsMatrix,CommCrsGraph,CreateOneToOneMap};
+
+    enum class BFSState { Unvisited, Visiting, Visited };
 
     template <class SC = double,
               class LO = int,
@@ -138,6 +142,8 @@ namespace FROSch {
         int identifyConnectivityEntities(UNVecPtr multiplicities = null,
                                          EntityFlagVecPtr flags = null);
 
+        XMapPtr fixUnconnectedNodesMap(XMatrixPtr mat);
+
         UN getDimension() const;
 
         UN getDofsPerNode() const;
@@ -175,6 +181,38 @@ namespace FROSch {
 
         ConstXMapPtr getNodesMap() const;
 
+    private:
+
+        /**
+         * \brief Find the nodes in the given overlap region that make an interface entity connected.
+         * 
+         * \param[in] mat The system matrix.
+         * \param[in] entityNodes The global indices of the nodes in the entity that needs to be made connected.
+         * \param[in] ovlpNodes The global indices of candidate nodes in a given overlap region that can be used to make the entity connected.
+         * \param[out] newInterfaceNodes The global indices of the nodes that make the entity connected. The new nodes are appended to the end of the array.
+         */
+        void findConnectingNodes(ConstXMatrixPtr mat,
+                                 Array<GO>& entityNodes,
+                                 Array<GO>& ovlpNodes,
+                                 Array<GO>& newInterfaceNodes);
+
+        /**
+         * \brief Find the nodes in a given set of search nodes that connect the components of a graph.
+         * 
+         * This member function performs a modified BFS on the connectivity graph of the nodes in `searchNodes`.
+         * For each connected component of the graph, we search a path connecting it to the other components.
+         * 
+         * \param[in] mat A Xpetra matrix representing the adjacency matrix of the graph.
+         * \param[in] interfaceNodes The global indices of the nodes on the interface. The search stops at these nodes, so they are not included in the search space.
+         * \param[in] searchNodes The global indices of the nodes in the search space.
+         * \param[in] components A map representing the connected components of the graph containing the entity's nodes.
+         * 
+         * \return The global indices of the nodes in `searchNodes` that connect the components of the graph.
+         */
+        Array<GO> findNodesConnectingComponents(XMatrixPtr mat,
+                                                Array<GO> interfaceNodes,
+                                                Array<GO> searchNodes,
+                                                std::map<GO, Array<GO>> components);
 
     protected:
 

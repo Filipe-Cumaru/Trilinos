@@ -922,6 +922,288 @@ namespace FROSch {
         return 0;
     }
 
+    template <class SC,class LO,class GO,class NO>
+    typename DDInterface<SC,LO,GO,NO>::XMapPtr DDInterface<SC,LO,GO,NO>::fixUnconnectedNodesMap(XMatrixPtr mat)
+    {
+        // Extend the matrix by two layers of overlap to make sure that we capture
+        // all nodes that are connected to the interface.
+        ConstXMatrixPtr extOvlpMat = mat.getConst();
+        ConstXMapPtr extOvlpMap = mat->getRowMap();
+        for (UN i = 0; i < 2; i++) {
+            ExtendOverlapByOneLayer(extOvlpMat, extOvlpMap, extOvlpMat, extOvlpMap);
+        }
+        ArrayView<const GO> extOvlpDofsView = extOvlpMap->getLocalElementList();
+
+        // Initialize a distributed map with the global indices of the interface
+        // nodes. This will be later used to identify which nodes in the overlapping
+        // region are on the interface of another subdomain.
+        Array<GO> interfaceNodes;
+        InterfaceEntityPtr interfaceEntity = Interface_->getEntity(0);
+        for (UN i = 0; i < interfaceEntity->getNumNodes(); i++) {
+            interfaceNodes.push_back(interfaceEntity->getGlobalNodeID(i));
+        }
+        XMapPtr interfaceMap = MapFactory<LO, GO, NO>::Build(this->NodesMap_->lib(),
+                                                            Teuchos::OrdinalTraits<GO>::invalid(),
+                                                            interfaceNodes(),
+                                                            0,
+                                                            this->NodesMap_->getComm());
+
+        // Find which nodes in the extended subdomain are in the interior of the
+        // non-overlapping subdomain.
+        Array<int> extOvlpDofPID(extOvlpDofsView.size());
+        this->UniqueNodesMap_->getRemoteIndexList(extOvlpDofsView, extOvlpDofPID);
+
+        // Similarly, find which nodes in the extended subdomain are on the interface.
+        Array<int> interfaceNodePID(extOvlpDofsView.size());
+        interfaceMap->getRemoteIndexList(extOvlpDofsView, interfaceNodePID);
+
+        // Initialize the list of nodes in the extended subdomain that are in
+        // the interior of the non-overlapping subdomain and not on the interface.
+        Array<GO> extOvlpNodes;
+        for (UN i = 0; i < extOvlpDofsView.size(); i++) {
+            // If the PID of the index in the unique nodes map is not -1, then
+            // this dof corresponds to a node. Analogously, if the PID of the
+            // index in the interface map is -1, then the dof is in the interior
+            // of a subdomain. Finally, we check if the dof is in the repeated
+            // nodes map. If not, then it is in the extended overlap.
+            if (extOvlpDofPID[i] != -1
+                && interfaceNodePID[i] == -1
+                && !this->NodesMap_->isNodeGlobalElement(extOvlpDofsView[i])) {
+                extOvlpNodes.push_back(extOvlpDofsView[i]);
+            }
+        }
+
+
+        // Build a local copy of the extended overlap matrix.
+        XMapPtr serialExtOvlpMap = MapFactory<LO, GO, NO>::Build(extOvlpMap->lib(),
+                                                                Teuchos::OrdinalTraits<GO>::invalid(),
+                                                                extOvlpMap->getLocalElementList(),
+                                                                0,
+                                                                rcp(new MpiComm<LO>(MPI_COMM_SELF)));
+        ConstXMatrixPtr localExtOvlpMat = ExtractLocalSubdomainMatrix(extOvlpMat,
+                                                                      extOvlpMap,
+                                                                      serialExtOvlpMap.getConst());
+
+        Array<GO> updatedSubdomainNodes;
+        for (UN i = 0; i < this->EntitySetVector_.size(); i++) {
+            for (UN j = 0; j < this->EntitySetVector_[i]->getNumEntities(); j++) {
+                InterfaceEntityPtr currEntity = this->EntitySetVector_[i]->getEntity(j);
+                Array<GO> entityNodes;
+                for (UN k = 0; k < currEntity->getNumNodes(); k++) {
+                    entityNodes.push_back(currEntity->getGlobalNodeID(k));
+                }
+
+                // First, check if all nodes in the entity are connected to each
+                // other based on the system matrix. New nodes that make the entity
+                // connected are added to the array updatedSubdomainNodes.
+                this->findConnectingNodes(localExtOvlpMat,
+                                          entityNodes,
+                                          extOvlpNodes,
+                                          updatedSubdomainNodes);
+
+                // Next, we need to check if the entity is connected to all its
+                // ancestors and offspring.
+                EntitySetPtr ancestorsSet = currEntity->getAncestors();
+                for (UN k = 0; k < ancestorsSet->getNumEntities(); k++) {
+                    InterfaceEntityPtr ancestor = ancestorsSet->getEntity(k);
+                    Array<GO> ancestorAndEntityNodes;
+                    for (UN l = 0; l < ancestor->getNumNodes(); l++) {
+                        ancestorAndEntityNodes.push_back(ancestor->getGlobalNodeID(l));
+                    }
+                    ancestorAndEntityNodes.insert(ancestorAndEntityNodes.end(),
+                                                  entityNodes.begin(),
+                                                  entityNodes.end());
+                    
+                    this->findConnectingNodes(localExtOvlpMat,
+                                              ancestorAndEntityNodes,
+                                              extOvlpNodes,
+                                              updatedSubdomainNodes);
+                }
+
+                EntitySetPtr offspringSet = currEntity->getOffspring();
+                for (UN k = 0; k < offspringSet->getNumEntities(); k++) {
+                    InterfaceEntityPtr offspring = offspringSet->getEntity(k);
+                    Array<GO> offspringAndEntityNodes;
+                    for (UN l = 0; l < offspring->getNumNodes(); l++) {
+                        offspringAndEntityNodes.push_back(offspring->getGlobalNodeID(l));
+                    }
+                    offspringAndEntityNodes.insert(offspringAndEntityNodes.end(),
+                                                entityNodes.begin(),
+                                                entityNodes.end());
+                    
+                    this->findConnectingNodes(localExtOvlpMat,
+                                              offspringAndEntityNodes,
+                                              extOvlpNodes,
+                                              updatedSubdomainNodes);
+                }
+            }
+        }
+
+        // Add the global indices of the nodes in the original repeated nodes map
+        // into updatedSubdomainNodes and remove any duplicates.
+        updatedSubdomainNodes.insert(updatedSubdomainNodes.end(),
+                                     this->NodesMap_->getLocalElementList().begin(),
+                                     this->NodesMap_->getLocalElementList().end());
+        sortunique(updatedSubdomainNodes);
+
+        // Build the new repeated nodes map with the indices of the nodes that
+        // make the interface fully connected.
+        XMapPtr updatedNodesMap = MapFactory<LO, GO, NO>::Build(this->NodesMap_->lib(),
+                                                                Teuchos::OrdinalTraits<GO>::invalid(),
+                                                                updatedSubdomainNodes(),
+                                                                0,
+                                                                this->NodesMap_->getComm());
+        updatedNodesMap->describe(*fancyOStream(rcpFromRef(std::cout)),Teuchos::VERB_EXTREME);     
+
+        return updatedNodesMap;
+    }
+
+    template <class SC,class LO,class GO,class NO>
+    void DDInterface<SC,LO,GO,NO>::findConnectingNodes(ConstXMatrixPtr mat,
+                                                       Array<GO>& entityNodes,
+                                                       Array<GO>& ovlpNodes,
+                                                       Array<GO>& newInterfaceNodes)
+    {
+        XMatrixPtr entityMat;
+        BuildSubmatrix(mat, entityNodes(), entityMat);
+
+        // Get the list of the global indices of the nodes in the entity and in
+        // the extended overlapping region.
+        Array<GO> entityNodesWithOvlp;
+        std::set_union(entityNodes.begin(), entityNodes.end(),
+                       ovlpNodes.begin(), ovlpNodes.end(),
+                       std::back_inserter(entityNodesWithOvlp));
+
+        // Find the connected components of the entity.
+        std::map<GO, Array<GO>> entityComponents = findConnectedComponents(entityMat);
+
+        // If there are more than one connected component, then we need to find
+        // the nodes in the extended overlap that make the entity connected.
+        if (entityComponents.size() > 1) {
+            XMatrixPtr entityWithOvlpMat;
+            BuildSubmatrix(mat, entityNodesWithOvlp(), entityWithOvlpMat);
+
+            Array<GO> newEntityNodes = this->findNodesConnectingComponents(entityWithOvlpMat,
+                                                                           entityNodes,
+                                                                           entityNodesWithOvlp,
+                                                                           entityComponents);
+
+            newInterfaceNodes.insert(newInterfaceNodes.end(),
+                                     newEntityNodes.begin(),
+                                     newEntityNodes.end());
+        }
+    }
+
+    template <class SC,class LO,class GO,class NO>
+    Array<GO> DDInterface<SC,LO,GO,NO>::findNodesConnectingComponents(XMatrixPtr mat,
+                                                            Array<GO> interfaceNodes,
+                                                            Array<GO> searchNodes,
+                                                            std::map<GO, Array<GO>> components)
+    {
+        std::queue<GO> bfsQueue;
+        std::map<GO, GO> predecessor;
+        std::map<GO, BFSState> bfsStatus;
+        std::set<GO> linkingNodes;
+        ConstXMapPtr rowMap = mat->getRowMap();
+
+        // Initialize the data structures for the BFS.
+        for (GO node : searchNodes) {
+            predecessor[node] = -1;
+
+            // If the node is on the interface, mark it as visited so the search stops
+            // at it. Otherwise, mark it as unvisited so it can be traversed.
+            if (std::find(interfaceNodes.begin(), interfaceNodes.end(), node) != interfaceNodes.end()) {
+                bfsStatus[node] = BFSState::Visited;
+            } else {
+                bfsStatus[node] = BFSState::Unvisited;
+            }
+        }
+
+        // Perform a BFS starting from each connected component of the interface.
+        // The search stops at the nodes on the interface, but it keeps track of the
+        // predecessors so that the path from the linking nodes to the interface can
+        // be reconstructed.
+        for (auto it = components.begin(); it != components.end(); it++) {
+            // For each node in the current component, add its unvisited neighbors
+            // to the BFS queue. Since all interface nodes are marked as visited,
+            // only interior nodes will be added to the queue.
+            for (GO node : it->second) {
+                ArrayView<const LO> neighborIndices;
+                ArrayView<const SC> neighborValues;
+                LO localNodeIdx = rowMap->getLocalElement(node);
+                mat->getLocalRowView(localNodeIdx, neighborIndices, neighborValues);
+                for (UN j = 0; j < neighborIndices.size(); j++) {
+                    GO neighbor = rowMap->getGlobalElement(neighborIndices[j]);
+                    if (bfsStatus[neighbor] == BFSState::Unvisited && std::abs(neighborValues[j]) > 1e-10) {
+                        bfsQueue.push(neighbor);
+                        predecessor[neighbor] = node;
+                        bfsStatus[neighbor] = BFSState::Visiting;
+                    }
+                }
+            }
+
+            std::set<GO> visitedComponents;
+
+            while (!bfsQueue.empty()) {
+                GO currentNode = bfsQueue.front();
+                bfsQueue.pop();
+
+                ArrayView<const LO> currNodeNeighborIndices;
+                ArrayView<const SC> currNodeNeighborValues;
+                LO localCurrentNodeIdx = rowMap->getLocalElement(currentNode);
+                mat->getLocalRowView(localCurrentNodeIdx,
+                                     currNodeNeighborIndices,
+                                     currNodeNeighborValues);
+                
+                for (UN j = 0; j < currNodeNeighborIndices.size(); j++) {
+                    // Skip the neighbor if the entry in the adjacency matrix is zero.
+                    if (std::abs(currNodeNeighborValues[j]) < 1e-10) {
+                        continue;
+                    }
+
+                    GO neighbor = rowMap->getGlobalElement(currNodeNeighborIndices[j]);
+
+                    // If the neighbor is unvisited, add it to the queue. Otherwise,
+                    // if the neighbor is in another component, then the current node
+                    // is at the end of the path connecting two components.
+                    if (bfsStatus[neighbor] == BFSState::Unvisited) {
+                        bfsQueue.push(neighbor);
+                        predecessor[neighbor] = currentNode;
+                        bfsStatus[neighbor] = BFSState::Visiting;
+                    } else {
+                        for (auto itt = components.begin(); itt != components.end(); itt++) {
+                            if (itt->first != it->first &&
+                                visitedComponents.find(itt->first) ==
+                                    visitedComponents.end() &&
+                                std::binary_search(itt->second.begin(),
+                                                itt->second.end(), neighbor)) {
+                                linkingNodes.insert(currentNode);
+                                visitedComponents.insert(itt->first);
+                            }
+                        }
+                    }
+                }
+
+                bfsStatus[currentNode] = BFSState::Visited;
+            }
+        }
+
+        Teuchos::Array<GO> linkingNodesArray(linkingNodes.begin(),
+                                            linkingNodes.end());
+        Teuchos::Array<GO> additionalInterfaceNodes;
+        for (GO node : linkingNodes) {
+            additionalInterfaceNodes.push_back(node);
+            GO nodePredecessor = predecessor[node];
+            while (std::find(interfaceNodes.begin(), interfaceNodes.end(),
+                            nodePredecessor) == interfaceNodes.end()) {
+                additionalInterfaceNodes.push_back(nodePredecessor);
+                nodePredecessor = predecessor[nodePredecessor];
+            }
+        }
+        FROSch::sortunique(additionalInterfaceNodes);
+
+        return additionalInterfaceNodes;
+    }
 }
 
 #endif
